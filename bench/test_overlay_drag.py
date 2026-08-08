@@ -36,6 +36,30 @@ class FakeEvent:
         self.y_root = y_root
 
 
+def settled(root, was: tuple[int, int], timeout: float = 2.0) -> tuple[int, int]:
+    """Read the window position once Windows has actually applied the move.
+
+    root.update() pumps the event queue but does not promise the window manager
+    has processed WM_MOVE by the time it returns. Reading winfo_x() immediately
+    after it made this test fail on a machine under load while the drag handler
+    was working perfectly: "window actually moved" and "moved by the drag delta"
+    both read the stale position and failed together, leaving the other twelve
+    checks green.
+
+    Waiting for the position to change (or for the timeout) tests the drag
+    handler rather than the scheduler. A handler that genuinely does not move
+    the window still fails, it just takes `timeout` to say so.
+    """
+    deadline = time.perf_counter() + timeout
+    while time.perf_counter() < deadline:
+        root.update()
+        now = (root.winfo_x(), root.winfo_y())
+        if now != was:
+            return now
+        time.sleep(0.02)
+    return (root.winfo_x(), root.winfo_y())
+
+
 from localflow.config import DEFAULTS  # noqa: E402
 
 overlay = WaveOverlay(
@@ -61,8 +85,7 @@ def driver() -> None:
     # Drag up and to the left by a known amount.
     overlay._on_drag_start(FakeEvent(500, 500))
     overlay._on_drag_move(FakeEvent(500 - 120, 500 - 200))
-    root.update()
-    moved = (root.winfo_x(), root.winfo_y())
+    moved = settled(root, start)
     print(f"  after drag:     {moved}")
     check("window actually moved", moved != start)
     check("moved by the drag delta",
@@ -88,8 +111,9 @@ def driver() -> None:
 
     # A position from a detached monitor must not strand the overlay.
     ghost_x, ghost_y = overlay._clamp_to_desktop(-99999, -99999)
+    before_ghost = (root.winfo_x(), root.winfo_y())
     root.geometry(f"+{ghost_x}+{ghost_y}")
-    root.update()
+    settled(root, before_ghost)
     check("recovers from an off-screen saved position",
           vx <= root.winfo_x() <= vx + vw and vy <= root.winfo_y() <= vy + vh,
           f"(landed at {root.winfo_x()}, {root.winfo_y()})")
@@ -115,8 +139,9 @@ def driver() -> None:
 
     # Negative coordinates are legal: monitors left of or above the primary.
     if vx < 0:
+        before_neg = (root.winfo_x(), root.winfo_y())
         root.geometry(f"+{vx}+{vy + 50}")
-        root.update()
+        settled(root, before_neg)
         check("accepts negative coordinates", root.winfo_x() == vx,
               f"(asked {vx}, got {root.winfo_x()})")
     else:
