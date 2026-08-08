@@ -15,17 +15,22 @@ accent profiles, rule-based cleanup, and a system tray menu.
 
 ## Requirements
 
-Windows, an NVIDIA GPU, and Python 3.11 or newer. The Windows dependency is not
-incidental: the hotkey is a `WH_KEYBOARD_LL` hook, text injection uses
-`SendInput`, and the overlay relies on layered non-activating windows. There is
-no macOS or Linux path.
+Windows and an NVIDIA GPU. The Windows dependency is not incidental: the hotkey
+is a `WH_KEYBOARD_LL` hook, text injection uses `SendInput`, and the overlay
+relies on layered non-activating windows. There is no macOS or Linux path.
+
+The code targets Python 3.11 and newer, but **`requirements.txt` is pinned to
+CPython 3.14 on Windows x64**. It carries one SHA256 per package, and pip picks
+a wheel tagged for the running interpreter, so a hash-pinned install on a
+different minor version will fail on anything with a C extension. Use 3.14, or
+re-resolve the pins for your version.
 
 ## Install
 
 ```powershell
 git clone https://github.com/crazyashking/localflow
 cd localflow
-py -3.11 -m venv .venv
+py -3.14 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt --require-hashes --only-binary=:all:
 ```
 
@@ -190,16 +195,22 @@ Two strategies, because neither works everywhere:
   only reliable option in some Electron apps.
 
 `auto` types short text and pastes long text, and it checks the clipboard first.
-Borrowing the clipboard means only the text can be put back, so if it holds
-something richer (an image, a file drop), `auto` types instead and your copy
-survives. Ordinary text still pastes, including the OLE bookkeeping formats that
-Word, Excel, Explorer and browsers attach to every copy.
+Borrowing the clipboard means only plain text can be put back, so anything
+richer would be destroyed. The check is an allow-list, and an unrecognised
+format makes it type instead:
 
-Two things worth knowing. Setting `inject_method` to `"paste"` forces the paste
-path and skips that check, which is the one way dictating can cost you a
-non-text clipboard. And if the clipboard cannot be borrowed at all, usually
-because another process is holding the lock, injection falls back to typing
-rather than losing the transcription.
+| what you last copied | `auto` will |
+|---|---|
+| nothing, or plain text | paste |
+| text from Word, Excel or Explorer (adds OLE bookkeeping) | paste |
+| text from a browser, or anything carrying HTML or rich text | type, since that formatting cannot be restored |
+| an image, or files | type |
+
+Two more things. Setting `inject_method` to `"paste"` forces the paste path and
+skips the check entirely, which is the one way dictating can cost you a non-text
+clipboard. And if the clipboard cannot be borrowed at all, usually because
+another process is holding the lock, injection falls back to typing rather than
+losing the transcription.
 
 `bench/test_clipboard.py` covers all of it without sending a single keystroke.
 

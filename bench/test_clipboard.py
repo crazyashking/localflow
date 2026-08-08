@@ -143,6 +143,20 @@ try:
     put_non_text_format()
     check("non-text clipboard reported unrestorable", inject.clipboard_is_restorable() is False)
 
+    # 4b. The boundary of the allow-list. Rich formats carry real user content
+    #     that restoring plain text would silently flatten, so they must fail
+    #     the check even though CF_UNICODETEXT is sitting right there. Browsers
+    #     attach HTML Format to every copy, so this is the common case.
+    for rich in ("HTML Format", "Rich Text Format"):
+        win32clipboard.OpenClipboard()
+        try:
+            win32clipboard.EmptyClipboard()
+            win32clipboard.SetClipboardData(inject.CF_UNICODETEXT, "hello")
+            win32clipboard.SetClipboardData(win32clipboard.RegisterClipboardFormat(rich), b"x")
+        finally:
+            win32clipboard.CloseClipboard()
+        check(f"{rich} clipboard is not borrowed", inject.clipboard_is_restorable() is False)
+
     # 5. And auto must act on that answer by typing instead of pasting, even
     #    when the text is long enough that it would normally paste.
     typed.clear()

@@ -19,6 +19,13 @@ from dataclasses import dataclass
 COMPUTE_TYPE = "float16"
 DEVICE = "cuda"
 
+# Whisper's native input rate. It lives here rather than in audio.py because the
+# model is what dictates it; the recorder captures at this rate to satisfy the
+# model, which is what lets the numpy array go straight into faster-whisper with
+# no resampling and no ffmpeg dependency. Keeping it in this module also means
+# nothing has to import the microphone layer just to know the number.
+SAMPLE_RATE = 16000
+
 
 @dataclass(frozen=True)
 class ModelSpec:

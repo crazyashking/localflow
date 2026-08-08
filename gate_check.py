@@ -1,4 +1,4 @@
-"""Environment gate. Run this before trusting anything downstream.
+﻿"""Environment gate. Run this before trusting anything downstream.
 
 Confirms, in order:
   1. NVIDIA DLL directories register cleanly.
@@ -14,8 +14,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from localflow import cuda
-from localflow.audio import SAMPLE_RATE
+from localflow import cuda, models
 
 print("=" * 68)
 print("LocalFlow environment gate")
@@ -39,8 +38,6 @@ print(f"  compute types    {sorted(ctranslate2.get_supported_compute_types('cuda
 # 3. Model load, float16 only.
 print("\n[3/4] Model load")
 from faster_whisper import WhisperModel  # noqa: E402
-
-from localflow import models  # noqa: E402
 
 spec = models.get()
 print(f"  {spec.label}")
@@ -73,18 +70,18 @@ sample = Path("bench/samples/s1.wav")
 if sample.exists():
     from faster_whisper.audio import decode_audio  # noqa: E402
 
-    clip = decode_audio(str(sample), sampling_rate=SAMPLE_RATE)
+    clip = decode_audio(str(sample), sampling_rate=models.SAMPLE_RATE)
     source = sample.name
     vad = True
 else:
     # No sample available: force an encode with noise and VAD disabled, so the
     # GPU path is genuinely exercised even though the text will be junk.
     rng = np.random.default_rng(0)
-    clip = rng.normal(0, 0.01, SAMPLE_RATE * 2).astype(np.float32)
+    clip = rng.normal(0, 0.01, models.SAMPLE_RATE * 2).astype(np.float32)
     source = "synthetic noise (VAD off, compute check only)"
     vad = False
 
-audio_s = len(clip) / SAMPLE_RATE
+audio_s = len(clip) / models.SAMPLE_RATE
 t0 = time.perf_counter()
 segments, _info = model.transcribe(
     clip, language="en", beam_size=5, vad_filter=vad, condition_on_previous_text=False
@@ -101,7 +98,7 @@ if sample.exists() and not text:
 
 # Separate hallucination check: silence must produce nothing.
 print("\n  hallucination check (3s silence)")
-silence = np.zeros(SAMPLE_RATE * 3, dtype=np.float32)
+silence = np.zeros(models.SAMPLE_RATE * 3, dtype=np.float32)
 segments, _ = model.transcribe(
     silence, language="en", beam_size=5, vad_filter=True, condition_on_previous_text=False
 )

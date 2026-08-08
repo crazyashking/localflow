@@ -38,7 +38,6 @@ SCRIPT = [
 
 state = {"phase": "silence", "focus_stolen": False, "hidden_seen": False}
 start = time.perf_counter()
-phase_start = time.perf_counter()
 
 
 def level_source() -> float:
@@ -72,7 +71,6 @@ def driver() -> None:
     print(f"  foreground pid before: {foreground_pid()}")
     time.sleep(1.2)  # let the window build
 
-    global phase_start
     for st, seconds, note in SCRIPT:
         if st == "recording":
             if "silent" in note or "quiet" in note:
@@ -81,9 +79,9 @@ def driver() -> None:
                 state["phase"] = "loud"
             else:
                 state["phase"] = "speech"
-        # Colour must stay put across a speaking stretch. Sample it and check.
-        state["colours"] = set()
-        phase_start = time.perf_counter()
+        # Colour stability across a speaking stretch is asserted numerically in
+        # bench/test_overlay_colour.py rather than sampled here. This script is
+        # for judging the visuals and for the focus check below.
         overlay.set_state(st)
         print(f"  {st:<13} {note}")
 

@@ -18,7 +18,8 @@ from typing import NamedTuple
 import numpy as np
 import sounddevice as sd
 
-SAMPLE_RATE = 16000
+from .models import SAMPLE_RATE
+
 CHANNELS = 1
 BLOCKSIZE = 1024  # ~64ms at 16kHz
 

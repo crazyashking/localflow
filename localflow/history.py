@@ -26,7 +26,10 @@ class TranscriptLog:
         profile: str = "general",
         audio_seconds: float = 0.0,
         decode_seconds: float = 0.0,
-        speed: float = 0.0,
+        # Required, deliberately. The caller already has this on its
+        # Transcription, and a default here would let an omission show up as a
+        # silent 0x in the transcript instead of an error.
+        speed: float,
         method: str = "",
     ) -> Path | None:
         if not self.enabled or not text.strip():

@@ -13,7 +13,6 @@ from dataclasses import dataclass
 import numpy as np
 
 from . import cuda
-from .audio import SAMPLE_RATE
 
 cuda.init()  # must precede the ctranslate2 import chain; see cuda.py
 
@@ -96,7 +95,7 @@ class Transcriber:
         """
         assert self._model is not None
         rng = np.random.default_rng(0)
-        clip = rng.normal(0, 0.01, SAMPLE_RATE).astype(np.float32)
+        clip = rng.normal(0, 0.01, models.SAMPLE_RATE).astype(np.float32)
         try:
             segments, _ = self._model.transcribe(
                 clip, language=self.language, beam_size=1, vad_filter=False
@@ -124,7 +123,7 @@ class Transcriber:
             self.load()
         assert self._model is not None
 
-        audio_seconds = len(audio) / SAMPLE_RATE
+        audio_seconds = len(audio) / models.SAMPLE_RATE
         t0 = time.perf_counter()
 
         segments, _info = self._model.transcribe(

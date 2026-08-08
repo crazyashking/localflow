@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from faster_whisper.audio import decode_audio  # noqa: E402
 
 from localflow import asr  # noqa: E402
+from localflow.models import SAMPLE_RATE  # noqa: E402
 
 SAMPLES = Path(__file__).parent / "samples"
 
@@ -140,7 +141,7 @@ def main() -> int:
             failures += 1
             continue
 
-        clip = decode_audio(str(wav), sampling_rate=16000)
+        clip = decode_audio(str(wav), sampling_rate=SAMPLE_RATE)
         result = transcriber.transcribe(clip)
         score = wer(refs[key], result.text)
 

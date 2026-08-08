@@ -22,6 +22,7 @@ from faster_whisper.audio import decode_audio  # noqa: E402
 from localflow import app as app_module  # noqa: E402
 from localflow.app import DictationApp  # noqa: E402
 from localflow.config import DEFAULTS, Settings  # noqa: E402
+from localflow.models import SAMPLE_RATE  # noqa: E402
 
 failures = 0
 
@@ -55,7 +56,7 @@ print("app wiring checks")
 print("  loading model ...")
 application.transcriber.load()
 
-clip = decode_audio(str(Path(__file__).parent / "samples" / "s1.wav"), sampling_rate=16000)
+clip = decode_audio(str(Path(__file__).parent / "samples" / "s1.wav"), sampling_rate=SAMPLE_RATE)
 application._handle(clip)
 
 check("injection was called", len(injected) == 1)
@@ -87,7 +88,7 @@ check("final status is ready", statuses and statuses[-1][0] == "ready",
 import numpy as np  # noqa: E402
 
 before = application.utterances
-application._handle(np.zeros(16000 * 2, dtype=np.float32))
+application._handle(np.zeros(SAMPLE_RATE * 2, dtype=np.float32))
 check("silence injects nothing", len(injected) == 1)
 check("silence adds no utterance", application.utterances == before)
 

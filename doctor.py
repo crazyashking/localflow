@@ -142,8 +142,10 @@ try:
     from localflow import inject
 
     size = ctypes.sizeof(inject._INPUT)
-    if size != 40:
-        bad(f"INPUT struct is {size} bytes, must be 40", "inject.py struct layout regressed")
+    expected = inject._EXPECTED_INPUT_SIZE
+    if size != expected:
+        bad(f"INPUT struct is {size} bytes, must be {expected}",
+            "inject.py struct layout regressed")
     else:
         ok("INPUT struct size correct (SendInput will be accepted)")
     ok(f"clipboard restorable right now: {inject.clipboard_is_restorable()}")
