@@ -66,7 +66,14 @@ print(f"  loaded in        {load_s:.1f}s")
 print("\n[4/4] Decode round-trip")
 import numpy as np  # noqa: E402
 
-sample = Path("bench/samples/s1.wav")
+# Anchored to this file, NOT to the working directory. asr.py's burn-in failure
+# tells the user to run this script, and they may well run it from anywhere. A
+# relative path meant the sample was not found, the weaker synthetic-noise
+# branch ran instead, and the gate still printed GATE PASSED without ever
+# checking that real speech produces real text. That is the same silent
+# downgrade described at the top of this section, arriving through a different
+# door.
+sample = Path(__file__).resolve().parent / "bench" / "samples" / "s1.wav"
 if sample.exists():
     from faster_whisper.audio import decode_audio  # noqa: E402
 
@@ -80,6 +87,8 @@ else:
     clip = rng.normal(0, 0.01, models.SAMPLE_RATE * 2).astype(np.float32)
     source = "synthetic noise (VAD off, compute check only)"
     vad = False
+    print(f"  [warn] {sample} is missing, so this run cannot check that real")
+    print("         speech produces real text. Compute is exercised, accuracy is not.")
 
 audio_s = len(clip) / models.SAMPLE_RATE
 t0 = time.perf_counter()
@@ -107,5 +116,10 @@ print(f"  output           {silence_text!r}"
       f"{'  (correct)' if not silence_text else '  <-- needs threshold tuning'}")
 
 print("\n" + "=" * 68)
-print("GATE PASSED")
+# The banner has to say which check actually ran. A bare "GATE PASSED" after
+# the degraded branch is how this file lied once already.
+if sample.exists():
+    print("GATE PASSED")
+else:
+    print("GATE PASSED (COMPUTE ONLY) - no speech sample, accuracy was not checked")
 print("=" * 68)
