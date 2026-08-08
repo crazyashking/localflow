@@ -28,7 +28,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from localflow import hotkey  # noqa: E402
-from localflow.audio import SAMPLE_RATE, Recorder  # noqa: E402
+from localflow.audio import Recorder  # noqa: E402
+from localflow.models import SAMPLE_RATE  # noqa: E402
 
 failures = 0
 

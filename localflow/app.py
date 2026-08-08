@@ -20,6 +20,7 @@ import numpy as np
 from . import asr, audio, hotkey, inject, overlay
 from .config import Settings
 from .history import TranscriptLog
+from .models import SAMPLE_RATE
 
 StatusFn = Callable[[str, str], None]
 
@@ -105,7 +106,7 @@ class DictationApp:
         if clip is None:
             self._status("ready", "too short, ignored")
             return
-        self._status("transcribing", f"{len(clip) / audio.SAMPLE_RATE:.1f}s captured")
+        self._status("transcribing", f"{len(clip) / SAMPLE_RATE:.1f}s captured")
         self._jobs.put(clip)
 
     # --- worker -----------------------------------------------------------

@@ -33,6 +33,7 @@ print("=" * 70)
 print("\n[1] settings")
 from localflow import audio, hotkey  # noqa: E402
 from localflow.config import Settings  # noqa: E402
+from localflow.models import SAMPLE_RATE  # noqa: E402
 
 settings = Settings.load()
 print(f"  hotkey        {hotkey.key_name(settings.hotkey_vk)} (vk={settings.hotkey_vk}), "
@@ -73,7 +74,7 @@ if recorder is not None:
         bad("no audio captured", "the stream returned nothing; try a different input_device")
     else:
         stats = audio.analyse(clip)
-        print(f"  captured {len(clip) / audio.SAMPLE_RATE:.1f}s  peak={stats.peak:.4f}  "
+        print(f"  captured {len(clip) / SAMPLE_RATE:.1f}s  peak={stats.peak:.4f}  "
               f"rms={stats.rms:.4f}  clipped={stats.clipped_fraction:.2%}")
         if stats.peak < 0.005:
             bad("microphone is essentially silent",
