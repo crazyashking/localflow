@@ -26,7 +26,7 @@ classifiers = [
 ]
 
 # Loose lower bounds, for anyone installing this as a package. They are NOT
-# how this project is meant to be installed: requirements.txt pins all 35
+# how this project is meant to be installed: requirements.txt pins all 33
 # packages to an exact version and SHA256, and that is the reproducible path.
 dependencies = [
     "faster-whisper>=1.1",

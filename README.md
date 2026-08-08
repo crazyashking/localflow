@@ -322,7 +322,7 @@ scripts have to extend `sys.path` before importing `localflow`.
 
 ## Dependencies and supply-chain handling
 
-`requirements.txt` pins all 35 packages to an exact version and SHA256. Install
+`requirements.txt` pins all 33 packages to an exact version and SHA256. Install
 only with:
 
 ```powershell
