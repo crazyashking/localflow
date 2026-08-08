@@ -152,9 +152,10 @@ reasoning:
 - **Canvas items are created once and reconfigured**, since rebuilding ~70
   gradient scanlines per frame holds the GIL and starves the audio callback.
 
-The last three are checked numerically by `bench/test_overlay_colour.py`, and
-the focus rule by `bench/demo_overlay.py`, which polls the foreground window's
-process id throughout a run.
+The three colour rules are checked numerically by
+`bench/test_overlay_colour.py`, across every pair of states, and the focus rule
+by `bench/demo_overlay.py`, which polls the foreground window's process id
+throughout a run.
 
 ## How long can one utterance be?
 
@@ -162,12 +163,12 @@ As long as `max_seconds` (default 600, so ten minutes). Whisper itself has no
 practical limit: a 190 second sample transcribes complete, all 24 marker
 sentences recovered, with VAD on. See `bench/test_longform.py`.
 
-If you do speak past the cap, the app now says so. It previously discarded the
-remainder in total silence, which produced a transcription that just stopped
-with nothing to explain why.
+If you do speak past the cap, the app tells you. Dropping the remainder in
+silence would leave you with a transcription that just stops, and nothing on
+screen to explain why.
 
 **There is no timeout and no restart cycle.** Holding the key for five minutes
-is one press and one recording, not a series of short ones. Windows repeats
+is a single press and a single recording. Windows repeats
 WM_KEYDOWN roughly every 30ms while a key is held; the hook collapses those, so
 10,000 repeat events produce exactly one `on_press`. The recorder appends every
 block for as long as the key is down, with no timer, no rolling window, and no
