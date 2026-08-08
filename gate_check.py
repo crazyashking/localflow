@@ -1,4 +1,4 @@
-﻿"""Environment gate. Run this before trusting anything downstream.
+"""Environment gate. Run this before trusting anything downstream.
 
 Confirms, in order:
   1. NVIDIA DLL directories register cleanly.

@@ -2,7 +2,8 @@
 
 Uses a 190 second sample containing 24 numbered sentences, so any missing
 stretch is identifiable by which numbers fail to come back rather than by
-impression.
+impression. What the sample actually says is in samples/longform_reference.txt,
+for anyone checking a transcript by hand.
 
 Checks three separate things that could each silently drop speech:
   1. the transcriber's VAD and thresholds

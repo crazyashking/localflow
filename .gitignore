@@ -3,4 +3,3 @@ __pycache__/
 *.pyc
 settings.json
 models/
-_dryrun.json

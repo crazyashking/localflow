@@ -35,7 +35,10 @@ app = DictationApp(settings, on_status=lambda s, d: seen.append(s))
 print("app smoke test (a small overlay will appear near the bottom of the screen)")
 print("  warming up ...")
 app.warm_up()
-check("model warm and mic open", app.transcriber.ready and app.recorder._stream is not None)
+check(
+    "model warm and mic open",
+    app.transcriber._model is not None and app.recorder._stream is not None,
+)
 check("overlay created", app.overlay is not None)
 
 

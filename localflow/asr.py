@@ -112,10 +112,6 @@ class Transcriber:
                 "  .venv\\Scripts\\python.exe gate_check.py"
             ) from exc
 
-    @property
-    def ready(self) -> bool:
-        return self._model is not None
-
     # --- transcription ---------------------------------------------------
 
     def transcribe(self, audio: np.ndarray, *, beam_size: int = 5) -> Transcription:
