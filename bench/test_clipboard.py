@@ -237,6 +237,36 @@ try:
     finally:
         win32clipboard.EnumClipboardFormats = real_enum
 
+    # A failure while WRITING the dictation must still put the user's clipboard
+    # back. _clipboard_set_text empties before it writes, so a broken write
+    # leaves the clipboard empty; if that call sits outside paste_text's try,
+    # the restore never runs and the user silently loses what they had copied.
+    inject._clipboard_set_text("must survive a failed write")
+    original_set = win32clipboard.SetClipboardData
+    writes = {"n": 0}
+
+    def fail_first_write(fmt, data):
+        # Transient failure: the dictation write fails, the restore that
+        # follows it succeeds. That is the case worth protecting.
+        writes["n"] += 1
+        if writes["n"] == 1:
+            raise pywintypes.error(5, "SetClipboardData", "Access is denied.")
+        return original_set(fmt, data)
+
+    win32clipboard.SetClipboardData = fail_first_write
+    try:
+        typed.clear()
+        used = inject.inject("dictation", method="paste")
+    finally:
+        win32clipboard.SetClipboardData = original_set
+    check(
+        "a failed clipboard write still restores the user's text",
+        inject._clipboard_get_text() == "must survive a failed write",
+        f"(now {inject._clipboard_get_text()!r})",
+    )
+    check("and the dictation still got delivered", used == "type" and typed == ["dictation"],
+          f"(chose {used}, typed {typed})")
+
     # A failing restore must not escape paste_text and must not leave the
     # dictation behind. Only the write is broken here, so the paste still runs.
     inject._clipboard_set_text("user's own text")

@@ -300,8 +300,15 @@ def paste_text(text: str, restore_delay: float = 0.35) -> None:
     if not text:
         return
     previous = _clipboard_get_text()
-    _clipboard_set_text(text)
     try:
+        # Inside the try, deliberately. _clipboard_set_text empties the
+        # clipboard before it writes, so a failure on the write leaves the
+        # clipboard empty. With this call outside the try, the finally never
+        # ran, `previous` was never put back, and the user silently lost
+        # whatever they had copied. Losing the transcription is prevented by
+        # the caller's typing fallback; losing their clipboard was not
+        # prevented by anything.
+        _clipboard_set_text(text)
         _send(
             [
                 _key_event(vk=VK_CONTROL),
