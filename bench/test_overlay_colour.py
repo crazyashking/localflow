@@ -91,8 +91,11 @@ for label, source, target in PAIRS:
 key = ov._hex_to_hsv(ov.TRANSPARENT_KEY)
 drawn = list(ov.STATE_COLOURS.values()) + [ov.BG_TOP, ov.BG_BOTTOM]
 for state in ov.STATE_COLOURS.values():
-    drawn.append(ov._lerp_hsv(ov.BG_TOP, state, 0.12))
-    drawn.append(ov._lerp_hsv(ov.BG_BOTTOM, state, 0.06))
+    # Read the blend strengths from the module rather than copying the numbers,
+    # or tuning the tint would silently stop this check from testing what is
+    # actually drawn.
+    drawn.append(ov._lerp_hsv(ov.BG_TOP, state, ov.BG_TINT_TOP))
+    drawn.append(ov._lerp_hsv(ov.BG_BOTTOM, state, ov.BG_TINT_BOTTOM))
 nearest = min(distance(key, c) for c in drawn)
 check("no colour collides with the transparency key", nearest > 0.06,
       f"(closest {nearest:.3f})")

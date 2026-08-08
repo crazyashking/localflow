@@ -52,8 +52,8 @@ DEFAULTS: dict[str, Any] = {
     "overlay_x": None,
     "overlay_y": None,
     # How solid the capsule looks, 0.0 to 1.0. Windows layered windows apply
-    # one alpha to the whole window, so this dims the wave as well as the
-    # background; the wave colours are bright enough to stay legible. Lower
+    # one alpha to the whole window, so this dims the bars as well as the
+    # background; the bar colours are bright enough to stay legible. Lower
     # values look more like smoked glass. Clamped to a visible range.
     "overlay_opacity": 0.78,
 }

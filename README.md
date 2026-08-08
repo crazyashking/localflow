@@ -83,9 +83,15 @@ RTX 5060 Ti (16GB), i7-14700K, Whisper large-v3-turbo in FP16:
 
 ## The overlay
 
-A capsule with a soft vertical gradient and true semicircular ends, not the
-rounded rectangle every overlay uses. It stays visible the whole time the app
-is running and only goes away when the app exits.
+A 260x44 capsule with true semicircular ends rather than the rounded rectangle
+every overlay uses, holding a row of 24 round-capped bars. At rest they sit as a
+line of dots; while you speak they rise and fall with your voice. It stays
+visible the whole time the app is running and only goes away when the app exits.
+
+The bars follow your volume and nothing else. There is no idle animation and no
+ripple: an earlier version multiplied every bar by a travelling sine so a quiet
+meter still looked alive, which meant the display moved when you were silent and
+said something that was not true.
 
 **Drag it anywhere.** Click and drag to move it, including onto another
 monitor. The position is saved to `settings.json` and restored next launch. If
@@ -96,16 +102,19 @@ back onto the visible desktop rather than stranding itself off screen.
 
 | state | colour |
 |---|---|
-| idle, waiting for the hotkey | dim indigo, flat line |
+| idle, waiting for the hotkey | dim indigo, bars at rest |
 | listening, hearing nothing | violet |
 | picking up your voice | pink |
 | decoding | amber pulse travelling along the line |
 
-The wave's height is what follows your voice. Hue was tied to loudness in an
-early version and it churned through every syllable, which is noisy and says
-nothing. Speaking versus quiet is decided by a hysteresis band (rises at 0.20,
-falls at 0.09, with a short hang), so a voice sitting near the threshold cannot
-make the colour stutter.
+The colour goes on the whole capsule, not only the bars: the background gradient
+and the rim are both pulled toward the state colour, so the thing changes hue as
+you talk. Bar height is what follows your voice.
+
+Hue was tied to loudness in an early version and it churned through every
+syllable, which is noisy and says nothing. Speaking versus quiet is decided by a
+hysteresis band (rises at 0.20, falls at 0.09, with a short hang), so a voice
+sitting near the threshold cannot make the colour stutter.
 
 ### Opacity
 
@@ -118,10 +127,10 @@ side by side and pick one:
 
 Worth knowing what this can and cannot do. Windows layered windows offer
 either a colour key (fully transparent) or one uniform alpha for the whole
-window, and Tk cannot do per-pixel alpha. So opacity dims the wave along with
-the background; there is no way here to have a translucent panel behind a
-fully solid wave. The rim is drawn brighter than it would need to be on a
-solid capsule, so the silhouette stays defined at lower values.
+window, and Tk cannot do per-pixel alpha. So opacity dims the bars along with
+the background; there is no way here to have a translucent panel behind fully
+solid bars. The rim is drawn brighter than it would need to be on a solid
+capsule, so the silhouette stays defined at lower values.
 
 Acrylic blur through `SetWindowCompositionAttribute` would give a true frosted
 panel, but it is an undocumented API and is known to lag while a window is
@@ -154,8 +163,10 @@ reasoning:
   green on its way to the amber decoding colour.
 - **Per-frame change is bounded by RGB distance** rather than per component,
   because that is what the eye actually measures.
-- **Canvas items are created once and reconfigured**, since rebuilding ~70
-  gradient scanlines per frame holds the GIL and starves the audio callback.
+- **Canvas items are created once and reconfigured**, since rebuilding every
+  gradient scanline per frame holds the GIL and starves the audio callback. The
+  gradient repaint and the bar recolour are both skipped while the colour is not
+  actually moving.
 
 The three colour rules are checked numerically by
 `bench/test_overlay_colour.py`, across every pair of states, and the focus rule

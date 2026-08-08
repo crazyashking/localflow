@@ -1,8 +1,11 @@
 """Floating waveform overlay.
 
 A draggable capsule that stays on screen for the life of the process. It shows
-a flat line when idle, a live waveform while you speak, and a travelling pulse
+a row of dots at rest, a live bar meter while you speak, and a travelling pulse
 while the model decodes.
+
+The capsule itself takes the state colour, not just the bars, so the whole thing
+shifts hue as you talk. That is a deliberate choice rather than an oversight.
 
 Three decisions here are load-bearing rather than cosmetic. Each is explained
 where it is enforced: window focus in _apply_window_styles, the choice of
@@ -52,7 +55,15 @@ SM_CYVIRTUALSCREEN = 79
 # Never used by anything we draw.
 TRANSPARENT_KEY = "#010203"
 
-SAMPLES = 72
+# Discrete bars rather than a filled mirrored polygon. A solid blob is the
+# default shape for every voice UI and at 72 samples it carried more detail than
+# the eye can use, so it read as mush. Two dozen bars is legible at a glance and
+# reads as a meter rather than a decoration.
+BARS = 24
+BAR_WIDTH = 3
+BAR_MIN = 2.0          # half-height at rest, so idle is a neat row of dots
+PAD = 20               # horizontal inset, kept clear of the capsule's end caps
+
 FRAME_MS = 33          # 30fps: smooth, and light enough not to starve audio
 COLOUR_EASE = 0.10
 LEVEL_EASE = 0.35
@@ -128,7 +139,7 @@ def _ease_colour(
     return proposed
 
 
-# One colour per state. Colour reports what the app is DOING, while the wave's
+# One colour per state. Colour reports what the app is DOING, while the bars'
 # height is what follows your voice. Hue was tied to loudness first and it
 # churned through every syllable, which is noisy and says nothing.
 #
@@ -148,6 +159,15 @@ STATE_COLOURS: dict[str, tuple[float, float, float]] = {
 
 BG_TOP = _hex_to_hsv("#232735")
 BG_BOTTOM = _hex_to_hsv("#12141c")
+
+# How far the background is pulled toward the current state colour. This is what
+# makes the whole capsule shift hue as you speak rather than only the bars, and
+# it is deliberate: the capsule reporting its own state reads better than a
+# neutral container. Named rather than inlined so bench/test_overlay_colour.py
+# can check the actual blends against the transparency key instead of copies of
+# these numbers that could drift out of step.
+BG_TINT_TOP = 0.12
+BG_TINT_BOTTOM = 0.06
 
 
 def _capsule_extents(width: int, height: int, inset: float = 0.0) -> list[tuple[int, float, float]]:
@@ -179,8 +199,8 @@ class WaveOverlay:
     def __init__(
         self,
         get_level: Callable[[], float],
-        width: int = 320,
-        height: int = 68,
+        width: int = 260,
+        height: int = 44,
         position: tuple[int, int] | None = None,
         bottom_margin: int = 130,
         opacity: float = 0.78,
@@ -201,7 +221,7 @@ class WaveOverlay:
 
         self._root: tk.Tk | None = None
         self._canvas: tk.Canvas | None = None
-        self._history: deque[float] = deque([0.0] * SAMPLES, maxlen=SAMPLES)
+        self._history: deque[float] = deque([0.0] * BARS, maxlen=BARS)
         self._phase = 0.0
         self._level = 0.0
         self._speaking = False
@@ -213,10 +233,12 @@ class WaveOverlay:
         # Canvas item ids, created once and reconfigured per frame.
         self._bg_items: list[int] = []
         self._border_items: list[int] = []
-        self._wave_item: int | None = None
+        self._bar_items: list[int] = []
         self._pulse_item: int | None = None
         self._flat_item: int | None = None
         self._last_bg_key: str = ""
+        self._last_bar_colour: str = ""
+        self._bars_hidden = False
 
         self._drag_origin: tuple[int, int] | None = None
 
@@ -363,36 +385,49 @@ class WaveOverlay:
             self._bg_items.append(canvas.create_line(x0, y, x1, y, fill="#000000"))
 
         centre_y = self.height / 2
-        pad = 22
+        step = self._bar_step()
+
+        # Round caps, so a bar at rest is a dot rather than a hard stub and a
+        # tall bar reads as a lozenge. It costs nothing and it is most of the
+        # difference between "meter" and "bar chart".
+        for i in range(BARS):
+            x = PAD + i * step
+            self._bar_items.append(
+                canvas.create_line(
+                    x, centre_y - BAR_MIN, x, centre_y + BAR_MIN,
+                    fill="#000000", width=BAR_WIDTH, capstyle=tk.ROUND,
+                )
+            )
+
         self._flat_item = canvas.create_line(
-            pad, centre_y, self.width - pad, centre_y, fill="#000000", width=2,
-        )
-        self._wave_item = canvas.create_polygon(
-            [pad, centre_y, self.width - pad, centre_y],
-            smooth=True, splinesteps=10, fill="#000000", outline="#000000",
+            PAD, centre_y, self.width - PAD, centre_y, fill="#000000", width=2,
         )
         self._pulse_item = canvas.create_line(
-            pad, centre_y, pad + 40, centre_y, fill="#000000", width=4,
+            PAD, centre_y, PAD + 40, centre_y,
+            fill="#000000", width=4, capstyle=tk.ROUND,
         )
+
+    def _bar_step(self) -> float:
+        return (self.width - PAD * 2) / (BARS - 1)
 
     def _paint_background(self) -> None:
         """Vertical gradient, tinted slightly toward the current state colour."""
         canvas = self._canvas
         assert canvas is not None
 
-        # Repainting ~70 scanlines is the expensive part of a frame, so it is
+        # Repainting every scanline is the expensive part of a frame, so it is
         # skipped while the colour is not actually moving. The key tracks the
         # tint itself, not the barely-moving blend of it: the rim below uses
         # the tint at full strength, so keying on the 12%-blended background
-        # would let the rim lag a visible step behind the wave.
+        # would let the rim lag a visible step behind the bars.
         tint = self._colour
         key = f"{tint[0]:.3f}{tint[1]:.3f}{tint[2]:.3f}"
         if key == self._last_bg_key:
             return
         self._last_bg_key = key
 
-        top = _lerp_hsv(BG_TOP, tint, 0.12)
-        bottom = _lerp_hsv(BG_BOTTOM, tint, 0.06)
+        top = _lerp_hsv(BG_TOP, tint, BG_TINT_TOP)
+        bottom = _lerp_hsv(BG_BOTTOM, tint, BG_TINT_BOTTOM)
 
         # A translucent capsule needs a brighter rim than a solid one, or the
         # silhouette dissolves into whatever is behind it.
@@ -414,44 +449,55 @@ class WaveOverlay:
 
         colour = _hsv_to_hex(self._colour)
         centre_y = self.height / 2
-        pad = 22
-        span = self.width - pad * 2
+        span = self.width - PAD * 2
 
         if self.state == "transcribing":
-            canvas.itemconfigure(self._wave_item, state="hidden")
+            self._show_bars(False)
             canvas.itemconfigure(self._flat_item, state="normal", fill=_hsv_to_hex(
                 (self._colour[0], self._colour[1] * 0.45, self._colour[2] * 0.5)))
             head = (self._phase * 0.09) % 1.0
             segment = span * 0.28
-            x0 = pad + head * (span + segment) - segment
+            x0 = PAD + head * (span + segment) - segment
             canvas.coords(
                 self._pulse_item,
-                max(x0, pad), centre_y, min(x0 + segment, pad + span), centre_y,
+                max(x0, PAD), centre_y, min(x0 + segment, PAD + span), centre_y,
             )
             canvas.itemconfigure(self._pulse_item, state="normal", fill=colour)
             return
 
+        self._show_bars(True)
         canvas.itemconfigure(self._pulse_item, state="hidden")
         canvas.itemconfigure(self._flat_item, state="hidden")
-        canvas.itemconfigure(self._wave_item, state="normal", fill=colour, outline=colour)
 
-        step = span / (SAMPLES - 1)
-        max_amp = (self.height / 2) - 12
-        values = list(self._history)
+        # Recolouring is 24 itemconfigure calls, so it is skipped while the
+        # colour is not moving, exactly as the background repaint is.
+        recolour = colour != self._last_bar_colour
+        self._last_bar_colour = colour
 
-        top: list[float] = []
-        bottom: list[tuple[float, float]] = []
-        for i, amp in enumerate(values):
-            x = pad + i * step
-            edge = math.sin(math.pi * (i / (SAMPLES - 1))) ** 0.7
-            ripple = 0.70 + 0.30 * math.sin(self._phase + i * 0.38)
-            a = max(amp * max_amp * edge * ripple, 1.1)
-            top.append(x)
-            top.append(centre_y - a)
-            bottom.append((x, centre_y + a))
+        step = self._bar_step()
+        max_amp = (self.height / 2) - 8
+        for i, amp in enumerate(self._history):
+            x = PAD + i * step
+            # Taper toward the ends so the bars follow the capsule's rounded
+            # silhouette instead of stopping against it in a flat wall.
+            edge = math.sin(math.pi * (i / (BARS - 1))) ** 0.7
+            a = max(amp * max_amp * edge, BAR_MIN)
+            canvas.coords(self._bar_items[i], x, centre_y - a, x, centre_y + a)
+            if recolour:
+                canvas.itemconfigure(self._bar_items[i], fill=colour)
 
-        points = top + [coord for xy in reversed(bottom) for coord in xy]
-        canvas.coords(self._wave_item, *points)
+    def _show_bars(self, visible: bool) -> None:
+        """Toggle the bar row, only when it actually changes.
+
+        Doing this unconditionally would be 24 canvas calls on every frame of
+        every state, for a change that happens a handful of times per utterance.
+        """
+        if visible == (not self._bars_hidden):
+            return
+        self._bars_hidden = not visible
+        state = "normal" if visible else "hidden"
+        for item in self._bar_items:
+            self._canvas.itemconfigure(item, state=state)  # type: ignore[union-attr]
 
     # --- state --------------------------------------------------------------
 

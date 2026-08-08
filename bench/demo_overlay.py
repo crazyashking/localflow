@@ -27,11 +27,11 @@ from localflow.overlay import WaveOverlay  # noqa: E402
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 
 SCRIPT = [
-    ("idle", 2.5, "idle flatline, dim indigo"),
+    ("idle", 2.5, "idle: dim indigo, bars at rest as a row of dots"),
     ("recording", 3.0, "listening, silent: violet"),
-    ("recording", 5.0, "speaking: pink, wave grows, colour must NOT churn"),
+    ("recording", 5.0, "speaking: pink, bars grow, colour must NOT churn"),
     ("recording", 3.0, "quiet again: back to violet"),
-    ("recording", 5.0, "speaking loudly: still pink, only the wave gets bigger"),
+    ("recording", 5.0, "speaking loudly: still pink, only the bars get taller"),
     ("transcribing", 3.5, "decoding: amber pulse"),
     ("idle", 2.5, "idle again, still visible"),
 ]
