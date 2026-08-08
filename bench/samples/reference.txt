@@ -1,0 +1,3 @@
+﻿s1 => The quick brown fox jumps over the lazy dog while the team reviews the quarterly analytics dashboard.
+s3 => We deployed the CUDA build to production and latency dropped from four hundred milliseconds to ninety.
+s2 => Please schedule a follow up with the hiring manager on Thursday and send the revised resume.
