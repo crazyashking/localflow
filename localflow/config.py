@@ -32,6 +32,10 @@ DEFAULTS: dict[str, Any] = {
     # guard, not a quality one. 600s is about 38MB of buffer.
     "max_seconds": 600,
     "min_seconds": 0.3,
+    # Microphone RMS that fills the overlay meter to full height. Lower it if
+    # the bars barely move when you speak, raise it if they sit pegged at the
+    # top. This changes the display only; it has no effect on transcription.
+    "mic_level_ceiling": 0.14,
     # --- model ---
     "model": "large-v3-turbo",
     "language": "en",

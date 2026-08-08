@@ -34,6 +34,7 @@ class DictationApp:
             device=settings.input_device,
             max_seconds=settings.max_seconds,
             min_seconds=settings.min_seconds,
+            level_ceiling=settings.mic_level_ceiling,
         )
         self.transcriber = asr.Transcriber(
             model_key=settings.model,

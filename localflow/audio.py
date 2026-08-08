@@ -23,6 +23,15 @@ from .models import SAMPLE_RATE
 CHANNELS = 1
 BLOCKSIZE = 1024  # ~64ms at 16kHz
 
+# RMS that reads as a full-height meter. Speech sits roughly between 0.02 and
+# 0.15 depending on the mic, the gain and how close you sit, so this is the one
+# number worth exposing: too high and the meter barely twitches on a quiet mic.
+DEFAULT_LEVEL_CEILING = 0.14
+
+# Curve applied after scaling. Below 1.0 it lifts quiet sounds, which is what
+# gives small speech visible travel instead of leaving it pinned near the floor.
+LEVEL_CURVE = 0.55
+
 
 class MicError(RuntimeError):
     pass
@@ -34,10 +43,14 @@ class Recorder:
         device: str | int | None = None,
         max_seconds: float = 120.0,
         min_seconds: float = 0.3,
+        level_ceiling: float = DEFAULT_LEVEL_CEILING,
     ):
         self.device = _resolve_device(device)
         self.max_seconds = max_seconds
         self.min_seconds = min_seconds
+        # Guarded: a zero or negative ceiling from settings.json would divide by
+        # zero on every audio block, inside the PortAudio callback.
+        self.level_ceiling = max(float(level_ceiling), 1e-3)
 
         self._lock = threading.Lock()
         self._frames: deque[np.ndarray] = deque()
@@ -159,12 +172,14 @@ class Recorder:
     def live_level(self) -> float:
         """Smoothed current loudness as 0..1, for the overlay animation.
 
-        Speech sits around 0.05 to 0.25 RMS, so it is scaled against a 0.28
-        ceiling and curved to give small sounds visible movement without
-        letting loud ones peg the display.
+        Scaled against level_ceiling and curved, so quiet speech still produces
+        visible travel rather than sitting flat against the floor. The ceiling
+        was 0.28 with a 0.65 curve, which put ordinary speech at roughly a
+        third of the meter's height: the display technically worked and looked
+        broken, which for a level meter is the same thing.
         """
-        scaled = min(self._live_level / 0.28, 1.0)
-        return scaled ** 0.65 if scaled > 0 else 0.0
+        scaled = min(self._live_level / self.level_ceiling, 1.0)
+        return scaled**LEVEL_CURVE if scaled > 0 else 0.0
 
     @property
     def overflowed(self) -> bool:

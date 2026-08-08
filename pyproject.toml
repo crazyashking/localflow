@@ -9,7 +9,11 @@ description = "Offline push-to-talk dictation for Windows. No audio, text, or te
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
-authors = [{ name = "Ashrit Chattani", email = "ashritworks@gmail.com" }]
+# GitHub's noreply address rather than a real inbox. Package metadata is
+# published to PyPI and mirrored by countless indexes, so a real address here is
+# a scraping target for the life of the project. This one still reaches the
+# author through GitHub.
+authors = [{ name = "Ashrit Chattani", email = "60252193+crazyashking@users.noreply.github.com" }]
 keywords = ["dictation", "speech-to-text", "whisper", "offline", "local", "windows"]
 classifiers = [
     "Development Status :: 3 - Alpha",

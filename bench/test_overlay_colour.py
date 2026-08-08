@@ -86,6 +86,21 @@ for label, source, target in PAIRS:
         greenest = max(greenest, g - max(r, b))
     check(f"no green detour, {label}", greenest < 0.15, f"(green excess {greenest:.3f})")
 
+# 5b. The bars fan the hue out across the row, so the green rule has to hold for
+#     every bar at every point of every transition, not just for the base hue.
+#     Checking only the base would leave the widest bars unverified.
+spread_probe = ov.WaveOverlay.__new__(ov.WaveOverlay)
+for label, source, target in PAIRS:
+    colour = source
+    greenest = 0.0
+    for _ in range(900):
+        colour = ov._ease_colour(colour, target)
+        spread_probe._colour = colour
+        for i in (0, ov.BARS // 2, ov.BARS - 1):
+            r, g, b = rgb(ov._hex_to_hsv(spread_probe._bar_colour(i)))
+            greenest = max(greenest, g - max(r, b))
+    check(f"no green in any bar, {label}", greenest < 0.15, f"(green excess {greenest:.3f})")
+
 # 6. No drawn colour may collide with the transparency key, or Windows would
 #    punch it into a hole and it would vanish.
 key = ov._hex_to_hsv(ov.TRANSPARENT_KEY)

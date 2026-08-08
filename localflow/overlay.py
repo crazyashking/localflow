@@ -61,10 +61,26 @@ TRANSPARENT_KEY = "#010203"
 # reads as a meter rather than a decoration.
 BARS = 24
 BAR_WIDTH = 3
-BAR_MIN = 2.0          # half-height at rest, so idle is a neat row of dots
+BAR_MIN = 1.5          # half-height floor, so a silent bar is still a dot
 PAD = 20               # horizontal inset, kept clear of the capsule's end caps
 
-FRAME_MS = 33          # 30fps: smooth, and light enough not to starve audio
+# Each bar eases toward its target height instead of jumping to it. The level
+# history scrolls one slot per frame, and without this the bars step in
+# discrete jerks. Easing per bar is what makes the motion read as fluid.
+BAR_EASE = 0.40
+
+# Hue offset across the row, centred on the state colour: the leftmost bar sits
+# half a spread below it and the rightmost half above. The base hue still
+# reports the state, this just stops the row being one flat block of colour.
+# The value is bounded by the green rule (see STATE_COLOURS below) and
+# bench/test_overlay_colour.py checks the spread, not only the base hue.
+BAR_HUE_SPREAD = 0.09
+
+# Bars are drawn more saturated than the capsule behind them, so they read as
+# the foreground rather than as part of the panel.
+BAR_SAT_LIFT = 1.15
+
+FRAME_MS = 25          # 40fps. Measured cost is 0.05ms median, 0.9ms at p95
 COLOUR_EASE = 0.10
 LEVEL_EASE = 0.35
 MAX_RGB_STEP = 0.045
@@ -222,6 +238,8 @@ class WaveOverlay:
         self._root: tk.Tk | None = None
         self._canvas: tk.Canvas | None = None
         self._history: deque[float] = deque([0.0] * BARS, maxlen=BARS)
+        # Drawn height of each bar, eased toward the history value above.
+        self._bar_heights: list[float] = [0.0] * BARS
         self._phase = 0.0
         self._level = 0.0
         self._speaking = False
@@ -465,6 +483,19 @@ class WaveOverlay:
             canvas.itemconfigure(self._pulse_item, state="normal", fill=colour)
             return
 
+        if self.state != "recording":
+            # A flat line while idle. The bars belong to the act of listening,
+            # so showing them when nothing is being captured would imply the
+            # app is doing something it is not. The line is also the clearest
+            # possible "ready": it changes shape the instant the hotkey goes
+            # down, which a row of resting dots does not.
+            self._show_bars(False)
+            canvas.itemconfigure(self._pulse_item, state="hidden")
+            canvas.itemconfigure(self._flat_item, state="normal", fill=colour)
+            canvas.coords(self._flat_item, PAD, centre_y, self.width - PAD, centre_y)
+            self._bar_heights = [0.0] * BARS  # so the next press grows from flat
+            return
+
         self._show_bars(True)
         canvas.itemconfigure(self._pulse_item, state="hidden")
         canvas.itemconfigure(self._flat_item, state="hidden")
@@ -481,10 +512,18 @@ class WaveOverlay:
             # Taper toward the ends so the bars follow the capsule's rounded
             # silhouette instead of stopping against it in a flat wall.
             edge = math.sin(math.pi * (i / (BARS - 1))) ** 0.7
-            a = max(amp * max_amp * edge, BAR_MIN)
+            target = amp * max_amp * edge
+            self._bar_heights[i] += (target - self._bar_heights[i]) * BAR_EASE
+            a = max(self._bar_heights[i], BAR_MIN)
             canvas.coords(self._bar_items[i], x, centre_y - a, x, centre_y + a)
             if recolour:
-                canvas.itemconfigure(self._bar_items[i], fill=colour)
+                canvas.itemconfigure(self._bar_items[i], fill=self._bar_colour(i))
+
+    def _bar_colour(self, index: int) -> str:
+        """Colour for one bar: the state hue, fanned out across the row."""
+        hue, sat, val = self._colour
+        offset = BAR_HUE_SPREAD * (index / (BARS - 1) - 0.5)
+        return _hsv_to_hex(((hue + offset) % 1.0, min(sat * BAR_SAT_LIFT, 1.0), val))
 
     def _show_bars(self, visible: bool) -> None:
         """Toggle the bar row, only when it actually changes.

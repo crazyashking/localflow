@@ -76,6 +76,7 @@ RTX 5060 Ti (16GB), i7-14700K, Whisper large-v3-turbo in FP16:
 | `inject_method` | `auto`, `paste`, or `type`. See below. |
 | `max_seconds` | Longest single utterance, default 600. You are warned if you hit it. |
 | `min_seconds` | Shortest utterance worth transcribing, default 0.3. Anything briefer is treated as an accidental tap of the hotkey and dropped. |
+| `mic_level_ceiling` | Mic RMS that fills the overlay meter, default 0.14. Display only. Lower it if the bars barely move. |
 | `overlay` | Floating waveform capsule. `false` disables it. |
 | `overlay_bottom_margin` | Pixels above the bottom of the screen, used until you drag it. |
 | `overlay_x` / `overlay_y` | Saved automatically when you drag. `null` means default spot. |
@@ -84,14 +85,19 @@ RTX 5060 Ti (16GB), i7-14700K, Whisper large-v3-turbo in FP16:
 ## The overlay
 
 A 260x44 capsule with true semicircular ends rather than the rounded rectangle
-every overlay uses, holding a row of 24 round-capped bars. At rest they sit as a
-line of dots; while you speak they rise and fall with your voice. It stays
-visible the whole time the app is running and only goes away when the app exits.
+every overlay uses. It stays visible the whole time the app is running and only
+goes away when the app exits.
+
+**It shows a flat line until you hold the hotkey.** The line becomes 24
+round-capped bars the moment recording starts, and drops back to a line when it
+stops. Bars mean the microphone is live, so showing them while nothing is being
+captured would claim something untrue.
 
 The bars follow your volume and nothing else. There is no idle animation and no
 ripple: an earlier version multiplied every bar by a travelling sine so a quiet
-meter still looked alive, which meant the display moved when you were silent and
-said something that was not true.
+meter still looked alive, which meant the display moved when you were silent.
+Each bar eases toward its target height rather than snapping, which is what
+makes the motion read as fluid at 40fps.
 
 **Drag it anywhere.** Click and drag to move it, including onto another
 monitor. The position is saved to `settings.json` and restored next launch. If
@@ -100,16 +106,29 @@ back onto the visible desktop rather than stranding itself off screen.
 
 **Colour tells you what the app is doing:**
 
-| state | colour |
-|---|---|
-| idle, waiting for the hotkey | dim indigo, bars at rest |
-| listening, hearing nothing | violet |
-| picking up your voice | pink |
-| decoding | amber pulse travelling along the line |
+| state | shape | colour |
+|---|---|---|
+| idle, waiting for the hotkey | flat line | dim indigo |
+| listening, hearing nothing | bars | violet |
+| picking up your voice | bars | pink |
+| decoding | pulse travelling along a line | amber |
 
 The colour goes on the whole capsule, not only the bars: the background gradient
 and the rim are both pulled toward the state colour, so the thing changes hue as
 you talk. Bar height is what follows your voice.
+
+The bars also fan the hue out across the row, each one offset a little from the
+state colour, so the meter is a gradient rather than a block of flat colour. The
+spread is bounded by the green rule below, and the colour test checks every bar
+across every transition rather than only the base hue.
+
+### If the bars barely move
+
+Set `mic_level_ceiling` in `settings.json`. It is the microphone RMS that fills
+the meter, default `0.14`. Lower it for a quiet mic, raise it if the bars sit
+pegged at the top. It affects the display only and never the transcription. The
+default was 0.28 until it turned out to put ordinary speech at about a third of
+the available height, which looked broken even though it was working.
 
 Hue was tied to loudness in an early version and it churned through every
 syllable, which is noisy and says nothing. Speaking versus quiet is decided by a

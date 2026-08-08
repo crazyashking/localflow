@@ -169,7 +169,7 @@ class Hairline(Shape):
 
 STYLES: list[tuple[str, Shape]] = [
     ("16 bars x 5px, chunkier", Bars(n=16, width=5)),
-    ("24 bars x 3px  <- what the app draws now", Bars(n=24, width=3)),
+    ("24 bars x 3px  <- the shape the app draws", Bars(n=24, width=3)),
     ("24 bars, bottom anchored", Bars(n=24, width=3, mirrored=False)),
     ("filled polygon, 72 samples  <- the old one", Polygon(samples=72, ripple=True)),
     ("hairline stroke", Hairline(samples=48, width=2)),
