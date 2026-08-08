@@ -418,8 +418,8 @@ class WaveOverlay:
         # Repainting every scanline is the expensive part of a frame, so it is
         # skipped while the colour is not actually moving. The key tracks the
         # tint itself, not the barely-moving blend of it: the rim below uses
-        # the tint at full strength, so keying on the 12%-blended background
-        # would let the rim lag a visible step behind the bars.
+        # the tint at full strength, so keying on the blended background would
+        # let the rim lag a visible step behind the bars.
         tint = self._colour
         key = f"{tint[0]:.3f}{tint[1]:.3f}{tint[2]:.3f}"
         if key == self._last_bg_key:

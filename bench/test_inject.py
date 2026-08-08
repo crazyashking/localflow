@@ -23,6 +23,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from localflow import inject  # noqa: E402
 
+# The non-ASCII case below would otherwise die printing its own failure detail
+# on a cp1252 console. See the same note in test_clipboard.py.
+sys.stdout.reconfigure(errors="replace")
+
 failures = 0
 
 
@@ -181,16 +185,37 @@ def run_case_retrying(label: str, text: str, method: str, attempts: int = 4) -> 
 
 
 print("injection checks")
-print(f"  sizeof(INPUT) = {__import__('ctypes').sizeof(inject._INPUT)} (must be 40 on x64)")
+print(f"  sizeof(INPUT) = {ctypes.sizeof(inject._INPUT)} (must be 40 on x64)")
+
+# 0. Characters outside the BMP are sent as a UTF-16 surrogate pair, one key
+#    event per code unit. Asserted on the events themselves rather than through
+#    a widget: Tcl/Tk's own astral-plane handling varies by version, so a
+#    widget round-trip here would be testing Tk instead of type_text. Runs
+#    first because it needs no window and no focus.
+captured: list = []
+_real_send = inject._send
+inject._send = lambda events: captured.extend(events) or len(events)
+try:
+    inject.type_text("\U0001d11e")  # G clef, U+1D11E
+finally:
+    inject._send = _real_send
+scans = [e.ki.wScan for e in captured]
+check(
+    "astral char is split into a surrogate pair",
+    scans == [0xD834, 0xD834, 0xDD1E, 0xDD1E],
+    f"(got {[hex(s) for s in scans]})",
+)
 
 # 1. Simulated typing, the path used for short dictation.
 got = run_case_retrying("type", "hello from localflow", "type")
 check("type: text arrives intact", got == "hello from localflow", f"got {got!r}")
 
-# 2. Unicode, since accented output is the whole point of accent profiles.
-tricky = "cafe resume 123 naive"
+# 2. Non-ASCII, since accented output is the whole point of accent profiles.
+#    This read "cafe resume 123 naive" until it was noticed that the string
+#    contains no non-ASCII characters, so it proved nothing.
+tricky = "café naïve Zürich Ω 123"
 got = run_case_retrying("type-unicode", tricky, "type")
-check("type: mixed content intact", got == tricky, f"got {got!r}")
+check("type: non-ASCII arrives intact", got == tricky, f"got {ascii(got)}")
 
 # 3. Clipboard paste, the path used for long dictation.
 long_text = "This is a longer sentence that the app would paste rather than type."

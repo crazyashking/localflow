@@ -23,6 +23,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from localflow import inject  # noqa: E402
 
+# A Windows console defaults to cp1252, and this script prints whatever is on
+# the user's clipboard. One curly quote or accented character copied from a web
+# page was enough to kill the run with UnicodeEncodeError before a single check
+# had executed. Never let the console encoding decide whether the test runs.
+sys.stdout.reconfigure(errors="replace")
+
 failures = 0
 
 
@@ -76,7 +82,17 @@ if not inject.clipboard_is_restorable():
     raise SystemExit(0)
 
 entry_clipboard = inject._clipboard_get_text()
-print(f"  (clipboard on entry: {entry_clipboard!r})")
+
+
+def brief(value: str | None, limit: int = 70) -> str:
+    """Short, ASCII-safe preview of clipboard text, for the log lines only."""
+    if value is None:
+        return "None"
+    shown = ascii(value[:limit])
+    return shown + " ..." if len(value) > limit else shown
+
+
+print(f"  (clipboard on entry: {brief(entry_clipboard)})")
 
 # Neutralise the two things that would touch the outside world. paste_text is
 # still exercised in full; only the Ctrl+V burst and the wait after it are
@@ -104,9 +120,16 @@ try:
     inject._clipboard_set_text("sentinel-alpha")
     check("set/get round-trip", inject._clipboard_get_text() == "sentinel-alpha")
 
-    tricky = "cafe naive 123 ok"
+    # Genuinely non-ASCII, including a character outside the BMP. This check
+    # read "cafe naive 123 ok" until it was noticed that the string is pure
+    # ASCII, so a check named "unicode round-trip" was asserting nothing about
+    # unicode at all.
+    tricky = "café naïve Ω 漢字 \U0001d11e 123"
     inject._clipboard_set_text(tricky)
-    check("unicode round-trip", inject._clipboard_get_text() == tricky)
+    # ascii() rather than !r, so a mismatch is reported as escape sequences that
+    # any console can render and that show exactly which code point differs.
+    check("unicode round-trip", inject._clipboard_get_text() == tricky,
+          f"(got {ascii(inject._clipboard_get_text())})")
 
     # 2. Text copied by a real application, OLE bookkeeping and all, must be
     #    treated as borrowable. Getting this wrong does not lose data, it
@@ -298,7 +321,7 @@ finally:
         inject._clipboard_set_text(entry_clipboard)
     else:
         inject._clipboard_clear()
-    print(f"  (clipboard restored to: {entry_clipboard!r})")
+    print(f"  (clipboard restored to: {brief(entry_clipboard)})")
 
 print(f"\n{'all clipboard checks passed' if not failures else f'{failures} check(s) failed'}")
 raise SystemExit(1 if failures else 0)

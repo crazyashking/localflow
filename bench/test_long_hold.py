@@ -42,9 +42,10 @@ def check(name: str, ok: bool, detail: str = "") -> None:
 
 
 class _Status:
-    """Stand-in for PortAudio's CallbackFlags. Nothing dropped."""
+    """Stand-in for PortAudio's CallbackFlags."""
 
-    input_overflow = False
+    def __init__(self, input_overflow: bool = False):
+        self.input_overflow = input_overflow
 
 
 def feed(rec: Recorder, seconds: float, blocksize: int = 1024) -> int:
@@ -117,6 +118,16 @@ check(
 )
 check("no restart: capped flag not set", not rec.hit_cap)
 check("no samples dropped", not rec.overflowed)
+
+# The line above only proves the recorder does not raise the flag on its own.
+# On its own that is a check that cannot fail, since the stub above always
+# reports no overflow, so pair it with the case that can: one overflowing block
+# must set the flag. Silent dropped input is the failure this flag exists for.
+noisy = Recorder(max_seconds=600.0)
+noisy.begin()
+noisy._callback(np.zeros((1024, 1), dtype=np.float32), 1024, None, _Status(input_overflow=True))
+noisy.end()
+check("an overflowing block does set the flag", noisy.overflowed)
 
 # Continuity: a restart or a dropped span would leave a discontinuity. The fed
 # signal is a fixed-amplitude tone, so any silent gap is visible as a run of
