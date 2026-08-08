@@ -4,24 +4,9 @@ A draggable capsule that stays on screen for the life of the process. It shows
 a flat line when idle, a live waveform while you speak, and a travelling pulse
 while the model decodes.
 
-Design notes that are load-bearing rather than cosmetic:
-
-  * It must never take focus. Dictated text goes to the foreground window, so
-    an overlay that activated would receive its own transcription. Tk does not
-    guarantee this, so WS_EX_NOACTIVATE is applied before the window is ever
-    shown. It is draggable, which means it cannot be click-through, so this is
-    the only thing standing between the user and a very confusing bug.
-
-  * Colour tracks STATE, not loudness. Tying hue to volume meant the colour
-    churned constantly through every syllable, which is noisy and tells you
-    nothing. Amplitude follows your voice; colour tells you what the app is
-    doing. A hysteresis band decides speaking versus quiet so the colour does
-    not flicker on and off at the threshold.
-
-  * Canvas items are created once and then updated. Rebuilding ~70 gradient
-    scanlines every frame burns CPU and holds the GIL, which starves the audio
-    callback and drops recorded samples. Reusing items keeps the animation off
-    the critical path.
+Three decisions here are load-bearing rather than cosmetic. Each is explained
+where it is enforced: window focus in _apply_window_styles, the choice of
+state colours above STATE_COLOURS, and per-frame cost in _paint_background.
 """
 
 from __future__ import annotations
@@ -31,8 +16,8 @@ import ctypes
 import math
 import tkinter as tk
 from collections import deque
+from collections.abc import Callable
 from ctypes import wintypes
-from typing import Callable
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 user32.GetParent.argtypes = (wintypes.HWND,)
@@ -143,7 +128,9 @@ def _ease_colour(
     return proposed
 
 
-# One colour per state.
+# One colour per state. Colour reports what the app is DOING, while the wave's
+# height is what follows your voice. Hue was tied to loudness first and it
+# churned through every syllable, which is noisy and says nothing.
 #
 # Every hue here sits above 0.606, which is a hard constraint rather than a
 # preference. Amber (the decoding colour) is at hue 0.106, so the shortest way
@@ -151,6 +138,7 @@ def _ease_colour(
 # colour that belongs to no state and flashes past as an obvious glitch. Above
 # that line, every transition travels the violet, pink and red side instead.
 # Cyan and ordinary blue both fail this test, which is why neither is used.
+# bench/test_overlay_colour.py asserts it for every pair of states.
 STATE_COLOURS: dict[str, tuple[float, float, float]] = {
     "idle": (0.700, 0.30, 0.42),          # dim indigo, waiting for the hotkey
     "quiet": _hex_to_hsv("#8b5cf6"),      # violet, listening but hearing nothing
@@ -317,11 +305,18 @@ class WaveOverlay:
         )
 
     def _apply_window_styles(self) -> None:
-        """Non-activating and out of alt-tab.
+        """Make the window non-activating and keep it out of alt-tab.
 
-        Deliberately NOT click-through: the capsule has to receive mouse events
-        to be draggable. WS_EX_NOACTIVATE is what keeps a click on it from
-        stealing the foreground, which would send dictated text here.
+        This is the correctness requirement the whole overlay hangs on.
+        Dictated text goes to whichever window holds the foreground, so an
+        overlay that could activate would end up receiving its own
+        transcription. Tk gives no guarantee here, hence WS_EX_NOACTIVATE.
+
+        Click-through (WS_EX_TRANSPARENT) would also solve it, and is
+        deliberately left off, because the capsule has to receive mouse events
+        to be draggable. That makes WS_EX_NOACTIVATE the only thing preventing
+        the bug. bench/demo_overlay.py polls the foreground window's process id
+        throughout a run to prove it holds.
         """
         target = self._hwnd()
         style = user32.GetWindowLongW(target, GWL_EXSTYLE)
@@ -350,7 +345,7 @@ class WaveOverlay:
         self._root.geometry(f"+{x}+{y}")
         self._drag_origin = (event.x_root, event.y_root)
 
-    def _on_drag_end(self, event: tk.Event) -> None:  # noqa: ARG002
+    def _on_drag_end(self, event: tk.Event) -> None:
         self._drag_origin = None
         if self._root is not None and self.on_move is not None:
             self.on_move(self._root.winfo_x(), self._root.winfo_y())
@@ -465,7 +460,7 @@ class WaveOverlay:
             return 0.0
         try:
             return max(0.0, min(1.0, float(self.get_level())))
-        except Exception:  # noqa: BLE001
+        except Exception:
             return 0.0
 
     def _target_colour(self) -> tuple[float, float, float]:

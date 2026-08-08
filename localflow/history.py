@@ -26,6 +26,7 @@ class TranscriptLog:
         profile: str = "general",
         audio_seconds: float = 0.0,
         decode_seconds: float = 0.0,
+        speed: float = 0.0,
         method: str = "",
     ) -> Path | None:
         if not self.enabled or not text.strip():
@@ -39,7 +40,6 @@ class TranscriptLog:
         if new_file:
             lines.append(f"# LocalFlow transcript, {now:%A %d %B %Y}\n")
 
-        speed = audio_seconds / decode_seconds if decode_seconds > 0 else 0.0
         lines.append(f"\n## {now:%H:%M:%S}\n")
         lines.append(
             f"`{profile}` | {audio_seconds:.1f}s audio | "

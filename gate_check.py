@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 
 from localflow import cuda
+from localflow.audio import SAMPLE_RATE
 
 print("=" * 68)
 print("LocalFlow environment gate")
@@ -72,18 +73,18 @@ sample = Path("bench/samples/s1.wav")
 if sample.exists():
     from faster_whisper.audio import decode_audio  # noqa: E402
 
-    clip = decode_audio(str(sample), sampling_rate=16000)
+    clip = decode_audio(str(sample), sampling_rate=SAMPLE_RATE)
     source = sample.name
     vad = True
 else:
     # No sample available: force an encode with noise and VAD disabled, so the
     # GPU path is genuinely exercised even though the text will be junk.
     rng = np.random.default_rng(0)
-    clip = rng.normal(0, 0.01, 16000 * 2).astype(np.float32)
+    clip = rng.normal(0, 0.01, SAMPLE_RATE * 2).astype(np.float32)
     source = "synthetic noise (VAD off, compute check only)"
     vad = False
 
-audio_s = len(clip) / 16000
+audio_s = len(clip) / SAMPLE_RATE
 t0 = time.perf_counter()
 segments, _info = model.transcribe(
     clip, language="en", beam_size=5, vad_filter=vad, condition_on_previous_text=False
@@ -92,14 +93,15 @@ text = " ".join(s.text for s in segments).strip()
 decode_s = time.perf_counter() - t0
 
 print(f"  source           {source}")
-print(f"  decoded {audio_s:.1f}s in {decode_s:.2f}s  ({audio_s / max(decode_s, 1e-6):.0f}x real time)")
+speed = audio_s / max(decode_s, 1e-6)
+print(f"  decoded {audio_s:.1f}s in {decode_s:.2f}s  ({speed:.0f}x real time)")
 print(f"  output           {text[:70]!r}")
 if sample.exists() and not text:
     raise SystemExit("FAIL: real speech produced no transcription.")
 
 # Separate hallucination check: silence must produce nothing.
 print("\n  hallucination check (3s silence)")
-silence = np.zeros(16000 * 3, dtype=np.float32)
+silence = np.zeros(SAMPLE_RATE * 3, dtype=np.float32)
 segments, _ = model.transcribe(
     silence, language="en", beam_size=5, vad_filter=True, condition_on_previous_text=False
 )

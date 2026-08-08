@@ -13,17 +13,18 @@ from dataclasses import dataclass
 import numpy as np
 
 from . import cuda
+from .audio import SAMPLE_RATE
 
-cuda.init()  # must precede the ctranslate2 import chain
+cuda.init()  # must precede the ctranslate2 import chain; see cuda.py
 
 from faster_whisper import WhisperModel  # noqa: E402
 
 from . import models  # noqa: E402
 
 # Whisper reliably emits these when handed silence or non-speech noise. They
-# are training-set artifacts from captioned video, not transcription. We drop
-# them, but only when the clip is short or contained almost no speech, so a
-# genuine "thank you" is never eaten.
+# are training-set artifacts from captioned video rather than transcription.
+# They are only dropped on clips shorter than ARTIFACT_MAX_SECONDS, so a
+# genuine "thank you" in the middle of real dictation is never eaten.
 HALLUCINATION_ARTIFACTS = {
     "thank you.",
     "thanks for watching!",
@@ -81,23 +82,36 @@ class Transcriber:
     def _burn_in(self) -> None:
         """Force the first GPU encode at startup rather than mid-dictation.
 
-        CTranslate2 resolves cuBLAS lazily and CUDA compiles kernels on first
-        use, which costs several seconds. Paying it here means the user's first
-        real utterance is as fast as every later one. vad_filter is off on
-        purpose: with VAD on, this synthetic clip would be stripped to nothing
-        and the encode we are trying to trigger would never run.
+        Two jobs. It pays the one-off cost of CUDA kernel compilation so the
+        user's first utterance is as fast as every later one, and it surfaces a
+        broken GPU stack now instead of on the first thing they say, since
+        CTranslate2 does not touch cuBLAS until a real encode runs.
+
+        A failure here is fatal on purpose. Reporting "model warm" and then
+        dying on the user's first sentence is the exact silent failure the
+        whole cuda module exists to prevent.
+
+        vad_filter is off deliberately: with VAD on, this synthetic clip would
+        be stripped to nothing and the encode would never run.
         """
         assert self._model is not None
         rng = np.random.default_rng(0)
-        clip = rng.normal(0, 0.01, 16000).astype(np.float32)
+        clip = rng.normal(0, 0.01, SAMPLE_RATE).astype(np.float32)
         try:
             segments, _ = self._model.transcribe(
                 clip, language=self.language, beam_size=1, vad_filter=False
             )
             for _ in segments:  # generator is lazy; must drain to force compute
                 pass
-        except Exception as exc:  # noqa: BLE001
-            print(f"[asr] burn-in failed: {exc!r}")
+        except Exception as exc:
+            self._model = None
+            raise RuntimeError(
+                f"The model loaded but the first GPU encode failed: {exc}\n"
+                "This is almost always a CUDA library that is present at import "
+                "time but not on the loader path at compute time.\n"
+                "Run the environment gate for a layer-by-layer diagnosis:\n"
+                "  .venv\\Scripts\\python.exe gate_check.py"
+            ) from exc
 
     @property
     def ready(self) -> bool:
@@ -105,27 +119,18 @@ class Transcriber:
 
     # --- transcription ---------------------------------------------------
 
-    def transcribe(
-        self,
-        audio: np.ndarray,
-        *,
-        beam_size: int = 5,
-        initial_prompt: str | None = None,
-        hotwords: str | None = None,
-    ) -> Transcription:
+    def transcribe(self, audio: np.ndarray, *, beam_size: int = 5) -> Transcription:
         if self._model is None:
             self.load()
         assert self._model is not None
 
-        audio_seconds = len(audio) / 16000
+        audio_seconds = len(audio) / SAMPLE_RATE
         t0 = time.perf_counter()
 
         segments, _info = self._model.transcribe(
             audio,
             language=self.language,
             beam_size=beam_size,
-            initial_prompt=initial_prompt,
-            hotwords=hotwords,
             # Silero VAD trims leading and trailing silence, which is the
             # single biggest reduction in hallucinated output.
             vad_filter=True,

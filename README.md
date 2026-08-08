@@ -13,10 +13,33 @@ vocabulary.
 Working: the core dictation loop and the waveform overlay. Still to come are
 accent profiles, rule-based cleanup, and a system tray menu.
 
+## Requirements
+
+Windows, an NVIDIA GPU, and Python 3.11 or newer. The Windows dependency is not
+incidental: the hotkey is a `WH_KEYBOARD_LL` hook, text injection uses
+`SendInput`, and the overlay relies on layered non-activating windows. There is
+no macOS or Linux path.
+
+## Install
+
+```powershell
+git clone https://github.com/crazyashking/localflow
+cd localflow
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt --require-hashes --only-binary=:all:
+```
+
+Then confirm the GPU stack before trusting anything downstream:
+
+```powershell
+.\.venv\Scripts\python.exe gate_check.py
+```
+
+That downloads the pinned model on first run, roughly 1.6 GB.
+
 ## Running it
 
 ```powershell
-cd localflow
 .\.venv\Scripts\python.exe -m localflow
 ```
 
@@ -47,6 +70,7 @@ RTX 5060 Ti (16GB), i7-14700K, Whisper large-v3-turbo in FP16:
 | `input_device` | `null` for the Windows default, or a name substring such as `"Brio"`. |
 | `inject_method` | `auto`, `paste`, or `type`. See below. |
 | `max_seconds` | Longest single utterance, default 600. You are warned if you hit it. |
+| `min_seconds` | Shortest utterance worth transcribing, default 0.3. Anything briefer is treated as an accidental tap of the hotkey and dropped. |
 | `overlay` | Floating waveform capsule. `false` disables it. |
 | `overlay_bottom_margin` | Pixels above the bottom of the screen, used until you drag it. |
 | `overlay_x` / `overlay_y` | Saved automatically when you drag. `null` means default spot. |
@@ -63,7 +87,7 @@ monitor. The position is saved to `settings.json` and restored next launch. If
 a saved position points at a monitor you have since unplugged, it is clamped
 back onto the visible desktop rather than stranding itself off screen.
 
-**Colour reports state, not volume:**
+**Colour tells you what the app is doing:**
 
 | state | colour |
 |---|---|
@@ -72,11 +96,11 @@ back onto the visible desktop rather than stranding itself off screen.
 | picking up your voice | pink |
 | decoding | amber pulse travelling along the line |
 
-The wave's *height* follows your voice. Its *colour* does not. Tying hue to
-loudness meant the colour churned through every syllable, which is noisy and
-tells you nothing. Speaking versus quiet is decided by a hysteresis band
-(rises at 0.20, falls at 0.09, with a short hang), so a voice sitting near the
-threshold cannot make the colour stutter.
+The wave's height is what follows your voice. Hue was tied to loudness in an
+early version and it churned through every syllable, which is noisy and says
+nothing. Speaking versus quiet is decided by a hysteresis band (rises at 0.20,
+falls at 0.09, with a short hang), so a voice sitting near the threshold cannot
+make the colour stutter.
 
 ### Opacity
 
@@ -110,36 +134,27 @@ Preview it without dictating:
 
 ### Why it is built this way
 
-**It can never take focus.** The window carries `WS_EX_NOACTIVATE` and
-`WS_EX_TOOLWINDOW`, applied before it is ever shown. This is a correctness
-requirement rather than polish: dictated text goes to whichever window has
-focus, so an overlay that could activate would receive your own transcription.
-It is deliberately *not* click-through, because it has to receive mouse events
-to be draggable, which makes `WS_EX_NOACTIVATE` the only thing preventing that
-bug. `bench/demo_overlay.py` asserts it by polling the foreground window's
-process id throughout.
+Five constraints shape the overlay. Each one is explained in full where it is
+enforced in `localflow/overlay.py`, so this is a summary rather than the
+reasoning:
 
-**Colour is blended in HSV, not RGB.** Interpolating opposite hues in RGB
-passes through muddy grey at the midpoint. Going around the hue wheel keeps
-every intermediate colour saturated.
+- **It can never take focus.** `WS_EX_NOACTIVATE` and `WS_EX_TOOLWINDOW` are
+  applied before the window is ever shown. Dictated text goes to whichever
+  window holds the foreground, so an overlay that could activate would receive
+  your own transcription. It has to stay clickable to be draggable, which makes
+  that one style bit the only thing preventing the bug.
+- **Colour is blended through HSV.** Interpolating opposite hues in RGB passes
+  through muddy grey at the midpoint.
+- **Every state hue sits above 0.606**, so no transition detours through vivid
+  green on its way to the amber decoding colour.
+- **Per-frame change is bounded by RGB distance** rather than per component,
+  because that is what the eye actually measures.
+- **Canvas items are created once and reconfigured**, since rebuilding ~70
+  gradient scanlines per frame holds the GIL and starves the audio callback.
 
-**Every state hue sits above 0.606.** This is a hard constraint, not taste.
-Amber (decoding) is at hue 0.106, so the shortest path from any hue below 0.606
-runs straight through vivid green, a colour belonging to no state that flashes
-past as an obvious glitch. Cyan and ordinary blue both fail this, which is why
-neither is used. Above the line, every transition travels the violet, pink and
-red side. `bench/test_overlay_colour.py` checks all twelve state pairs for it.
-
-**Per-frame colour change is bounded in RGB, not per component.** Clamping hue,
-saturation and value separately only approximates smoothness, since a hue step
-costs far more rendered change at high saturation than at low. `MAX_RGB_STEP`
-bounds what the eye actually sees. `bench/test_overlay_colour.py` verifies this
-numerically instead of trusting the eye.
-
-**Canvas items are created once, then reconfigured.** The gradient is about 70
-horizontal scanlines clipped to the capsule outline. Rebuilding those every
-frame burns CPU and holds the GIL, which starves the audio callback and drops
-recorded samples. Reusing the items keeps the animation off that path.
+The last three are checked numerically by `bench/test_overlay_colour.py`, and
+the focus rule by `bench/demo_overlay.py`, which polls the foreground window's
+process id throughout a run.
 
 ## How long can one utterance be?
 
@@ -159,10 +174,6 @@ block for as long as the key is down, with no timer, no rolling window, and no
 `maxlen` on the buffer. `bench/test_long_hold.py` measures both, including a
 continuity check that a five minute capture contains no silent gap anywhere.
 
-Tk is not thread safe, so the overlay's animation loop owns the main thread. The
-keyboard hook and transcription worker run on their own threads and communicate
-with it through plain floats and strings.
-
 ## Quitting
 
 The overlay is frameless and non-activating by design, so it has no X and
@@ -177,9 +188,19 @@ Two strategies, because neither works everywhere:
 - **paste**: clipboard plus Ctrl+V. Constant time regardless of length, and the
   only reliable option in some Electron apps.
 
-`auto` types short text and pastes long text. Importantly, if the clipboard holds
-something that cannot be faithfully restored (an image, files), `auto` refuses to
-paste and types instead, so dictating never destroys what you had copied.
+`auto` types short text and pastes long text, and it checks the clipboard first.
+Borrowing the clipboard means only the text can be put back, so if it holds
+something richer (an image, a file drop), `auto` types instead and your copy
+survives. Ordinary text still pastes, including the OLE bookkeeping formats that
+Word, Excel, Explorer and browsers attach to every copy.
+
+Two things worth knowing. Setting `inject_method` to `"paste"` forces the paste
+path and skips that check, which is the one way dictating can cost you a
+non-text clipboard. And if the clipboard cannot be borrowed at all, usually
+because another process is holding the lock, injection falls back to typing
+rather than losing the transcription.
+
+`bench/test_clipboard.py` covers all of it without sending a single keystroke.
 
 ## When it is not working
 
@@ -215,23 +236,35 @@ window is focused, so click into a text field first, then hold the hotkey.
 `bench/samples/*.wav` are generated by Windows SAPI, so the expected text is known
 exactly and accuracy is measurable rather than a matter of impression.
 
-Notes on why the tests are shaped the way they are, each written after a real
-bug got through:
+Every one of these is shaped by a bug that already got through once. The theme
+is that this app fails silently, so a test that only proves code ran is worse
+than no test:
 
-- The gate deliberately transcribes **real speech**, not silence. An earlier
-  version fed it silence, VAD stripped every frame, the GPU encode path never
-  ran, and the gate reported PASS while cuBLAS had in fact never loaded.
+- The gate transcribes **real speech** rather than silence. An earlier version
+  fed it silence, VAD stripped every frame, the GPU encode path never ran, and
+  the gate reported PASS while cuBLAS had never loaded at all.
 - The WER scorer canonicalises number words, because Whisper writes "400" where
   the reference says "four hundred". Scoring that as an error would make the
   harness lie and corrupt every tuning decision made against it.
 - `test_inject.py` injects into a real focused widget instead of stubbing it.
-  Stubbing hid a broken `SendInput`: the `INPUT` union was sized to
-  `KEYBDINPUT` (24 bytes) rather than the larger `MOUSEINPUT` (32), so
-  `sizeof(INPUT)` was 32 where Windows requires 40 and every call was rejected
-  with ERROR_INVALID_PARAMETER. No text was ever typed, with no other symptom.
-- The paste test pumps the target's event loop while injecting. Restoring the
-  clipboard too soon makes a slow app read the restored value, so the user gets
-  their previous clipboard pasted instead of their dictation.
+  Stubbing hid a `SendInput` struct-size bug that rejected every call and typed
+  nothing, with no other symptom. Detail in `localflow/inject.py`.
+- `test_clipboard.py` replaced a check that read `inject.py` as text and grepped
+  it for a substring. That check printed PASS the whole time the clipboard guard
+  was rejecting nearly every real clipboard and quietly disabling the paste
+  path. It now puts real formats on a real clipboard and asserts behaviour.
+
+## Linting
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install ruff
+.\.venv\Scripts\python.exe -m ruff check .
+```
+
+Configured in `pyproject.toml`. The only suppression in the codebase is `E402`,
+used where import order is genuinely load-bearing: the NVIDIA DLL directories
+have to be registered before anything pulls in `ctranslate2`, and the bench
+scripts have to extend `sys.path` before importing `localflow`.
 
 ## Dependencies and supply-chain handling
 
@@ -252,25 +285,31 @@ only with:
   elevated, no PATH or registry changes are made. Deleting this folder removes
   every trace.
 - The model is pinned to an exact Hugging Face commit rather than tracking
-  `main`. CTranslate2's `model.bin` is its own binary tensor format, not a Python
-  pickle, so loading it does not deserialize code.
+  `main`. CTranslate2's `model.bin` is its own binary tensor format rather than a
+  Python pickle, so loading it does not deserialize code.
 
 ## Architecture
 
 ```
 localflow/
+  __main__.py  console entry point (python -m localflow)
+  app.py       wiring and threading
   cuda.py      registers NVIDIA DLL dirs; must import before ctranslate2
   hotkey.py    WH_KEYBOARD_LL global hook (ctypes, no admin needed)
   audio.py     16kHz mono float32 mic capture into a ring buffer
   asr.py       warm-resident Whisper model, anti-hallucination settings
   inject.py    clipboard paste / Unicode typing at the cursor
+  overlay.py   the draggable Tk capsule and its colour engine
   history.py   dated markdown transcripts
-  app.py       wiring and threading
   models.py    model registry, pinned by commit
   config.py    settings.json
 ```
 
-Threading: the keyboard hook owns the main thread and must never block, since a
-slow hook procedure gets silently unhooked by Windows. Callbacks only flip
-recording state and hand audio to a single worker thread, which keeps utterances
-in order.
+Threading: the keyboard hook owns its own thread and must never block, since
+Windows silently unhooks a slow hook procedure. Callbacks only flip recording
+state and hand audio to a single worker thread, which keeps utterances in order.
+Tk is not thread safe, so the overlay's animation loop owns the main thread.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

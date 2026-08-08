@@ -76,7 +76,7 @@ class Settings:
             raise AttributeError(f"Unknown setting {name!r}") from exc
 
     @classmethod
-    def load(cls, path: Path | None = None) -> "Settings":
+    def load(cls, path: Path | None = None) -> Settings:
         path = path or SETTINGS_PATH
         if not path.exists():
             return cls()

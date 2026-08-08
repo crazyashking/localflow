@@ -31,7 +31,7 @@ def rgb(hsv: tuple[float, float, float]) -> tuple[float, float, float]:
 
 def distance(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
     ra, rb = rgb(a), rgb(b)
-    return sum((x - y) ** 2 for x, y in zip(ra, rb)) ** 0.5
+    return sum((x - y) ** 2 for x, y in zip(ra, rb, strict=True)) ** 0.5
 
 
 print("overlay colour checks")

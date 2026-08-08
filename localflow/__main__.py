@@ -47,7 +47,7 @@ def main() -> int:
     app = DictationApp(settings, on_status=_print_status)
     try:
         app.warm_up()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"\nstartup failed: {exc}")
         return 1
 

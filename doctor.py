@@ -54,7 +54,7 @@ try:
     recorder = audio.Recorder(device=settings.input_device)
     recorder.open()
     ok("microphone stream opened")
-except Exception as exc:  # noqa: BLE001
+except Exception as exc:
     bad(f"could not open microphone: {exc}",
         "set input_device in settings.json to a name substring, e.g. \"Brio\"")
 
@@ -125,8 +125,8 @@ else:
             "a security/anti-cheat tool is likely blocking the hook")
     elif hits["press"] == 0:
         bad(f"saw {listener.events_seen} key events but never {key}",
-            f"you may be pressing the wrong key. Change hotkey_vk in settings.json "
-            f"(162=Left Ctrl, 163=Right Ctrl, 165=Right Alt, 145=Scroll Lock)")
+            "you may be pressing the wrong key. Change hotkey_vk in settings.json "
+            "(162=Left Ctrl, 163=Right Ctrl, 165=Right Alt, 145=Scroll Lock)")
     else:
         ok(f"{key} detected ({hits['press']} press, {hits['release']} release)")
     listener.stop()
@@ -147,7 +147,7 @@ try:
     else:
         ok("INPUT struct size correct (SendInput will be accepted)")
     ok(f"clipboard restorable right now: {inject.clipboard_is_restorable()}")
-except Exception as exc:  # noqa: BLE001
+except Exception as exc:
     bad(f"injection layer error: {exc}", "see traceback")
 
 # --- summary -----------------------------------------------------------

@@ -85,7 +85,7 @@ class Recorder:
 
     # --- capture -------------------------------------------------------
 
-    def _callback(self, indata, frames, time_info, status) -> None:  # noqa: ANN001
+    def _callback(self, indata, frames, time_info, status) -> None:
         # This runs on the PortAudio thread. Keep it cheap: copy and return.
         # Only input_overflow matters: it means PortAudio dropped incoming
         # samples, so the recording has a hole in it and the transcription will

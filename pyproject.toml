@@ -1,0 +1,58 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "localflow"
+version = "0.1.0"
+description = "Offline push-to-talk dictation for Windows. No audio, text, or telemetry leaves the machine."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Ashrit Chattani", email = "ashritworks@gmail.com" }]
+keywords = ["dictation", "speech-to-text", "whisper", "offline", "local", "windows"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: GPU :: NVIDIA CUDA",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
+
+# Loose lower bounds, for anyone installing this as a package. They are NOT
+# how this project is meant to be installed: requirements.txt pins all 35
+# packages to an exact version and SHA256, and that is the reproducible path.
+dependencies = [
+    "faster-whisper>=1.1",
+    "numpy>=1.26",
+    "sounddevice>=0.4.6",
+    "pywin32>=306",
+]
+
+[project.urls]
+Homepage = "https://github.com/crazyashking/localflow"
+Issues = "https://github.com/crazyashking/localflow/issues"
+
+[project.scripts]
+localflow = "localflow.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["localflow"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [".venv"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "C4", "SIM"]
+
+# Import order is load-bearing in two places and cannot be sorted: the NVIDIA
+# DLL directories must be registered before anything pulls in ctranslate2, and
+# the bench scripts have to extend sys.path before importing localflow. Those
+# sites carry an explicit `# noqa: E402` each, so E402 stays enabled to keep
+# every other file honest.
+[tool.ruff.lint.per-file-ignores]
+"bench/*" = ["T201"]

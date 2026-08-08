@@ -1,14 +1,11 @@
-# LocalFlow pinned dependencies
+# LocalFlow pinned dependencies.
 # Generated from a reviewed `pip install --dry-run --only-binary=:all:` resolution.
 #
 # Install ONLY with:
 #   pip install -r requirements.txt --require-hashes --only-binary=:all:
 #
-# --only-binary=:all: forbids source distributions, so no package's setup.py ever
-# executes on this machine. Every artifact below is a prebuilt wheel served from
-# files.pythonhosted.org and pinned by SHA256, so pip rejects any mismatched
-# artifact even if a maintainer account is later compromised and a version is
-# re-uploaded.
+# Both flags are load-bearing. See "Dependencies and supply-chain handling" in
+# README.md for why.
 
 anyio==4.14.2 --hash=sha256:9f505dda5ac9f0c8309b5e8bd445a8c2bf7246f3ce950121e45ea15bc41d1494
 av==18.0.0 --hash=sha256:aaf4d354d2beaa6651e4f92e54409a578bde64f79c0beef9a30b388d06f7c629

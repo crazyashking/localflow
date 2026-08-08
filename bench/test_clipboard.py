@@ -1,13 +1,22 @@
-"""Verify the clipboard is never left damaged by injection.
+"""Verify injection never leaves the clipboard damaged.
 
-Does NOT send keystrokes, so it is safe to run headless: it exercises only the
-save / set / restore logic that could clobber whatever the user had copied.
+Sends no keystrokes, so it is safe to run with anything focused. The Ctrl+V
+burst and the typing path are both stubbed out; what is under test is the
+save / set / restore logic that decides what the user's clipboard looks like
+afterwards, plus the two guards that keep a transcription from being lost or
+from clobbering something that cannot be put back.
+
+This script refuses to run if your clipboard currently holds something it
+cannot restore, because a clipboard-safety test that destroys your clipboard
+would be worse than no test at all.
 """
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
+
+import win32clipboard
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -23,52 +32,151 @@ def check(name: str, ok: bool, detail: str = "") -> None:
         failures += 1
 
 
+def put_text_with_ole_bookkeeping(text: str) -> None:
+    """Copy text the way an OLE-aware application does.
+
+    Word, Excel, Explorer, browsers and most .NET apps attach DataObject and
+    Ole Private Data to an ordinary text copy. Treating those as user content
+    made the restorable check reject nearly every real clipboard, so "auto"
+    silently typed instead of pasting. This reproduces that exact shape.
+    """
+    win32clipboard.OpenClipboard()
+    try:
+        win32clipboard.EmptyClipboard()
+        win32clipboard.SetClipboardData(inject.CF_UNICODETEXT, text)
+        for name in ("DataObject", "Ole Private Data"):
+            win32clipboard.SetClipboardData(
+                win32clipboard.RegisterClipboardFormat(name), b"\x01\x00\x00\x00"
+            )
+    finally:
+        win32clipboard.CloseClipboard()
+
+
+def put_non_text_format() -> None:
+    """Own the clipboard with a format that cannot be saved and restored.
+
+    A registered private format stands in for the real cases (an image, a file
+    drop). Faking the guard's answer instead would test nothing.
+    """
+    fmt = win32clipboard.RegisterClipboardFormat("LocalFlowTestBinary")
+    win32clipboard.OpenClipboard()
+    try:
+        win32clipboard.EmptyClipboard()
+        win32clipboard.SetClipboardData(fmt, b"\x00\x01\x02 not text")
+    finally:
+        win32clipboard.CloseClipboard()
+
+
 print("clipboard safety checks")
 
-original = inject._clipboard_get_text()
-print(f"  (clipboard on entry: {original!r})")
+if not inject.clipboard_is_restorable():
+    print("\n  SKIPPED: your clipboard currently holds something this test cannot")
+    print("  put back (an image or files). Copy some text, then run it again.")
+    raise SystemExit(0)
 
-# 1. Round-trip a value.
-inject._clipboard_set_text("sentinel-alpha")
-check("set/get round-trip", inject._clipboard_get_text() == "sentinel-alpha")
+entry_clipboard = inject._clipboard_get_text()
+print(f"  (clipboard on entry: {entry_clipboard!r})")
 
-# 2. Unicode survives intact.
-tricky = "café naïve 日本語 emoji ok"
-inject._clipboard_set_text(tricky)
-check("unicode round-trip", inject._clipboard_get_text() == tricky)
+# Neutralise the two things that would touch the outside world. paste_text is
+# still exercised in full; only the Ctrl+V burst and the wait after it are
+# replaced, so the save / set / restore sequence around them runs for real.
+real_send, real_type = inject._send, inject.type_text
+pasted: list[str] = []
+typed: list[str] = []
 
-# 3. Text clipboard is reported restorable.
-inject._clipboard_set_text("some prior copy")
-check("text clipboard is restorable", inject.clipboard_is_restorable() is True)
 
-# 4. The save/restore contract used by paste_text preserves prior contents.
-prior = inject._clipboard_get_text()
-inject._clipboard_set_text("transcribed text")
-inject._clipboard_set_text(prior)
-check("prior contents restored", inject._clipboard_get_text() == "some prior copy")
+def fake_send(events: list) -> int:
+    """Stand in for the Ctrl+V burst, and record what was on the clipboard.
 
-# 5. Empty clipboard is restorable (nothing to lose).
-inject._clipboard_set_text("")
-check("empty clipboard handled", inject.clipboard_is_restorable() is True)
+    Reading here is the point: it captures the clipboard at the exact moment
+    the target app would read it, which is what the restore must not race.
+    """
+    pasted.append(inject._clipboard_get_text() or "")
+    return len(events)
 
-# 6. auto never pastes into a clipboard it cannot restore.
-#    We cannot easily put an image on the clipboard here, so assert the guard
-#    exists and is consulted rather than faking the state.
-src = Path(__file__).resolve().parent.parent / "localflow" / "inject.py"
-body = src.read_text(encoding="utf-8")
-check(
-    "auto consults clipboard_is_restorable",
-    "clipboard_is_restorable()" in body.split("# auto")[1],
-    "(guards against clobbering images/files)",
-)
 
-# Put back whatever the user actually had.
-if original is not None:
-    inject._clipboard_set_text(original)
-    print(f"  (clipboard restored to: {original!r})")
-else:
-    inject._clipboard_set_text("")
-    print("  (clipboard had no text on entry; left empty)")
+inject._send = fake_send
+inject.type_text = lambda text, chunk=200: typed.append(text)
+
+try:
+    # 1. Basic round-trip through the helpers everything else depends on.
+    inject._clipboard_set_text("sentinel-alpha")
+    check("set/get round-trip", inject._clipboard_get_text() == "sentinel-alpha")
+
+    tricky = "cafe naive 123 ok"
+    inject._clipboard_set_text(tricky)
+    check("unicode round-trip", inject._clipboard_get_text() == tricky)
+
+    # 2. Text copied by a real application, OLE bookkeeping and all, must be
+    #    treated as borrowable. Getting this wrong does not lose data, it
+    #    quietly disables the paste path everywhere.
+    put_text_with_ole_bookkeeping("copied from a real app")
+    check("text with OLE bookkeeping is restorable", inject.clipboard_is_restorable() is True)
+    check("and the text itself still reads back",
+          inject._clipboard_get_text() == "copied from a real app")
+
+    # 3. The real contract: paste_text must leave the prior text exactly as it
+    #    found it, and the target must have seen the dictation, not the
+    #    restored value. Restoring too early is a real bug that this catches.
+    inject._clipboard_set_text("something the user copied")
+    pasted.clear()
+    inject.paste_text("dictated sentence", restore_delay=0.0)
+    check("target saw the dictation", pasted == ["dictated sentence"], f"(saw {pasted})")
+    check(
+        "prior clipboard restored exactly",
+        inject._clipboard_get_text() == "something the user copied",
+        f"(now {inject._clipboard_get_text()!r})",
+    )
+
+    # 3. With nothing text-shaped to restore, the dictation must NOT be left
+    #    behind. Leaving it there silently changes what the next Ctrl+V does.
+    inject._clipboard_clear()
+    inject.paste_text("dictated sentence", restore_delay=0.0)
+    check(
+        "dictation not left on an empty clipboard",
+        inject._clipboard_get_text() is None,
+        f"(now {inject._clipboard_get_text()!r})",
+    )
+
+    # 4. A clipboard holding a format we cannot rebuild must be reported
+    #    unrestorable. This is the guard that protects images and file drops.
+    put_non_text_format()
+    check("non-text clipboard reported unrestorable", inject.clipboard_is_restorable() is False)
+
+    # 5. And auto must act on that answer by typing instead of pasting, even
+    #    when the text is long enough that it would normally paste.
+    typed.clear()
+    pasted.clear()
+    long_text = "x" * 500
+    used = inject.inject(long_text, method="auto", paste_threshold=10)
+    check("auto types rather than clobber a non-text clipboard", used == "type", f"(chose {used})")
+    check("auto left the non-text clipboard alone", inject.clipboard_is_restorable() is False)
+
+    # 6. If the clipboard cannot be borrowed at all, a forced paste must fall
+    #    back to typing rather than lose the transcription.
+    inject._clipboard_set_text("prior")
+    typed.clear()
+
+    def refuse(text: str, restore_delay: float = 0.35) -> None:
+        raise OSError("could not open clipboard: simulated lock")
+
+    real_paste = inject.paste_text
+    inject.paste_text = refuse
+    try:
+        used = inject.inject("some dictation", method="paste")
+    finally:
+        inject.paste_text = real_paste
+    check("locked clipboard falls back to typing", used == "type", f"(chose {used})")
+    check("the text was still delivered", typed == ["some dictation"], f"(typed {typed})")
+
+finally:
+    inject._send = real_send
+    inject.type_text = real_type
+    if entry_clipboard is not None:
+        inject._clipboard_set_text(entry_clipboard)
+    else:
+        inject._clipboard_clear()
+    print(f"  (clipboard restored to: {entry_clipboard!r})")
 
 print(f"\n{'all clipboard checks passed' if not failures else f'{failures} check(s) failed'}")
 raise SystemExit(1 if failures else 0)

@@ -29,7 +29,34 @@ KEYEVENTF_KEYUP = 0x0002
 KEYEVENTF_UNICODE = 0x0004
 VK_CONTROL = 0x11
 VK_V = 0x56
+
+CF_TEXT = 1
+CF_OEMTEXT = 7
+CF_LOCALE = 16
 CF_UNICODETEXT = 13
+
+# Text and its companions. Windows synthesises the other three from
+# CF_UNICODETEXT, so putting that one back restores all four.
+TEXT_FORMATS = frozenset({CF_TEXT, CF_OEMTEXT, CF_UNICODETEXT, CF_LOCALE})
+
+# Bookkeeping that OLE-aware applications attach to an ordinary text copy.
+# Word, Excel, Explorer, browsers and most .NET apps all add these, and they
+# hold no user content: they describe the source object and are rebuilt on the
+# next copy. Treating them as content is not a theoretical mistake. It made
+# clipboard_is_restorable() return False for essentially every real text copy,
+# so "auto" never took the paste path and always fell back to typing.
+#
+# These are registered formats, so their numeric ids differ per session and
+# they have to be matched by name.
+IGNORABLE_FORMAT_NAMES = frozenset(
+    {
+        "DataObject",
+        "Ole Private Data",
+        "Object Descriptor",
+        "Link Source Descriptor",
+        "Preferred DropEffect",
+    }
+)
 
 
 class _KEYBDINPUT(ctypes.Structure):
@@ -43,12 +70,14 @@ class _KEYBDINPUT(ctypes.Structure):
 
 
 class _MOUSEINPUT(ctypes.Structure):
-    """Not used directly, but it is the LARGEST member of the INPUT union and
-    therefore determines sizeof(INPUT).
+    """Never sent by this module, but it is the LARGEST member of the INPUT
+    union and therefore determines sizeof(INPUT).
 
     Omitting it makes the union 24 bytes instead of 32, so sizeof(INPUT) comes
-    out as 32 rather than 40 on x64, and SendInput rejects every call with
-    ERROR_INVALID_PARAMETER (87). Nothing gets typed, with no other symptom.
+    out as 32 rather than the 40 Windows requires on x64, and SendInput then
+    rejects every call with ERROR_INVALID_PARAMETER (87). Nothing is typed and
+    there is no other symptom, which is why the size assertion below exists and
+    why bench/test_inject.py injects into a real widget instead of a stub.
     """
 
     _fields_ = [
@@ -153,8 +182,27 @@ def _clipboard_open(retries: int = 10, delay: float = 0.02):
     raise OSError(f"could not open clipboard: {last}")
 
 
+def _format_name(fmt: int) -> str:
+    """Name of a registered clipboard format, or "" for a standard one."""
+    try:
+        return win32clipboard.GetClipboardFormatName(fmt)
+    except Exception:
+        return ""
+
+
 def clipboard_is_restorable() -> bool:
-    """True if the clipboard is empty or holds only text we can put back."""
+    """True when borrowing the clipboard would cost the user nothing.
+
+    Borrowing means we can only put CF_UNICODETEXT back, so anything richer
+    (an image, a file drop, formatted HTML) would be destroyed by pasting.
+    This is the guard that stops that from happening.
+
+    The rule is deliberately allow-list shaped: text plus known-harmless OLE
+    bookkeeping passes, and any format we do not recognise fails, so an
+    unfamiliar payload makes the caller type instead of paste. Erring toward
+    the slower path is the right trade when the alternative is eating whatever
+    the user had copied.
+    """
     try:
         _clipboard_open()
     except OSError:
@@ -169,9 +217,9 @@ def clipboard_is_restorable() -> bool:
             formats.append(fmt)
         if not formats:
             return True
-        # Text-only formats are the ones we can faithfully save and restore.
-        # 1=CF_TEXT, 7=CF_OEMTEXT, 13=CF_UNICODETEXT, 16=CF_LOCALE.
-        return all(f in (1, 7, 13, 16) for f in formats)
+        return all(
+            f in TEXT_FORMATS or _format_name(f) in IGNORABLE_FORMAT_NAMES for f in formats
+        )
     finally:
         win32clipboard.CloseClipboard()
 
@@ -195,15 +243,26 @@ def _clipboard_set_text(text: str) -> None:
         win32clipboard.CloseClipboard()
 
 
+def _clipboard_clear() -> None:
+    _clipboard_open()
+    try:
+        win32clipboard.EmptyClipboard()
+    finally:
+        win32clipboard.CloseClipboard()
+
+
 def paste_text(text: str, restore_delay: float = 0.35) -> None:
     """Set the clipboard, send Ctrl+V, then put the old clipboard back.
 
-    restore_delay is a real correctness knob, not cosmetic. The target app
-    reads the clipboard asynchronously when it processes WM_PASTE. Restore too
-    early and the app reads the RESTORED value, so the user gets their previous
-    clipboard pasted instead of what they just dictated. Electron and other
-    slow-pumping apps are the usual victims, so the default is deliberately
-    generous.
+    restore_delay is a correctness knob rather than a cosmetic one. The target
+    app reads the clipboard asynchronously when it processes WM_PASTE, so
+    restoring too early makes it read the RESTORED value and the user gets
+    their previous clipboard pasted instead of what they just dictated.
+    Electron and other slow-pumping apps are the usual victims, so the default
+    is deliberately generous.
+
+    Raises OSError if the clipboard cannot be borrowed. Callers that have a
+    typing path available should fall back to it rather than propagate.
     """
     if not text:
         return
@@ -218,18 +277,38 @@ def paste_text(text: str, restore_delay: float = 0.35) -> None:
                 _key_event(vk=VK_CONTROL, flags=KEYEVENTF_KEYUP),
             ]
         )
-        # The target app reads the clipboard asynchronously, so restoring
-        # immediately would race it and paste the old contents instead.
         time.sleep(restore_delay)
     finally:
-        if previous is not None:
-            try:
+        try:
+            if previous is not None:
                 _clipboard_set_text(previous)
-            except OSError:
-                pass
+            else:
+                # There was no text to put back, which means the clipboard was
+                # empty or held something non-text. Either way, leaving the
+                # dictation sitting there would silently change what the user's
+                # next Ctrl+V does, so clear it instead.
+                _clipboard_clear()
+        except OSError:
+            pass
 
 
 # --- dispatch --------------------------------------------------------------
+
+
+def _paste_or_type(text: str) -> str:
+    """Paste, falling back to typing if the clipboard cannot be borrowed.
+
+    Another process can hold the clipboard lock for longer than the retries in
+    _clipboard_open will wait. Losing a transcription to that would be far
+    worse than taking the slower path, so this degrades instead of raising.
+    """
+    try:
+        paste_text(text)
+        return "paste"
+    except OSError as exc:
+        print(f"\n[inject] clipboard unavailable ({exc}); typing instead")
+        type_text(text)
+        return "type"
 
 
 def inject(text: str, method: str = "auto", paste_threshold: int = 120) -> str:
@@ -241,12 +320,10 @@ def inject(text: str, method: str = "auto", paste_threshold: int = 120) -> str:
         type_text(text)
         return "type"
     if method == "paste":
-        paste_text(text)
-        return "paste"
+        return _paste_or_type(text)
 
     # auto
     if len(text) >= paste_threshold and clipboard_is_restorable():
-        paste_text(text)
-        return "paste"
+        return _paste_or_type(text)
     type_text(text)
     return "type"

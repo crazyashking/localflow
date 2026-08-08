@@ -20,8 +20,8 @@ from __future__ import annotations
 
 import ctypes
 import threading
+from collections.abc import Callable
 from ctypes import wintypes
-from typing import Callable
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -57,9 +57,13 @@ user32.CallNextHookEx.argtypes = (wintypes.HHOOK, ctypes.c_int, wintypes.WPARAM,
 user32.CallNextHookEx.restype = LRESULT
 user32.UnhookWindowsHookEx.argtypes = (wintypes.HHOOK,)
 user32.UnhookWindowsHookEx.restype = wintypes.BOOL
-user32.GetMessageW.argtypes = (ctypes.POINTER(wintypes.MSG), wintypes.HWND, wintypes.UINT, wintypes.UINT)
+user32.GetMessageW.argtypes = (
+    ctypes.POINTER(wintypes.MSG), wintypes.HWND, wintypes.UINT, wintypes.UINT,
+)
 user32.GetMessageW.restype = wintypes.BOOL
-user32.PostThreadMessageW.argtypes = (wintypes.DWORD, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
+user32.PostThreadMessageW.argtypes = (
+    wintypes.DWORD, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM,
+)
 user32.PostThreadMessageW.restype = wintypes.BOOL
 
 
@@ -147,7 +151,7 @@ class HotkeyListener:
         # callbacks are contained here.
         try:
             fn()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             print(f"[hotkey] callback error: {exc!r}")
 
     def run(self) -> None:

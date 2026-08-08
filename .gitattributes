@@ -1,0 +1,6 @@
+* text=auto
+*.py text diff=python
+*.md text
+*.toml text
+*.txt text
+*.wav binary

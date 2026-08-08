@@ -110,7 +110,9 @@ expected = blocks * 1024
 check(
     "5 min of audio is kept whole",
     clip is not None and len(clip) == expected,
-    f"{len(clip) / SAMPLE_RATE:.1f}s captured of {HOLD:.0f}s fed" if clip is not None else "got None",
+    f"{len(clip) / SAMPLE_RATE:.1f}s captured of {HOLD:.0f}s fed"
+    if clip is not None
+    else "got None",
 )
 check("no restart: capped flag not set", not rec.hit_cap)
 check("no samples dropped", not rec.overflowed)
@@ -139,7 +141,9 @@ short = capped.end()
 check(
     "past max_seconds the remainder is dropped",
     short is not None and abs(len(short) / SAMPLE_RATE - 10.0) < 0.2,
-    f"kept {len(short) / SAMPLE_RATE:.1f}s of 12s with a 10s cap" if short is not None else "got None",
+    f"kept {len(short) / SAMPLE_RATE:.1f}s of 12s with a 10s cap"
+    if short is not None
+    else "got None",
 )
 check("and it is reported, not silent", capped.hit_cap)
 

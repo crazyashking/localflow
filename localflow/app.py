@@ -13,7 +13,7 @@ from __future__ import annotations
 import queue
 import threading
 import time
-from typing import Callable
+from collections.abc import Callable
 
 import numpy as np
 
@@ -117,7 +117,7 @@ class DictationApp:
                 break
             try:
                 self._handle(clip)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 self._status("error", repr(exc))
 
     def _handle(self, clip: np.ndarray) -> None:
@@ -149,12 +149,14 @@ class DictationApp:
             profile=self.settings.model,
             audio_seconds=result.audio_seconds,
             decode_seconds=result.decode_seconds,
+            speed=result.speed,
             method=method,
         )
         self.utterances += 1
         self._status(
             "ready",
-            f"{len(result.text)} chars, {result.decode_seconds:.2f}s ({result.speed:.0f}x), {method}",
+            f"{len(result.text)} chars, {result.decode_seconds:.2f}s "
+            f"({result.speed:.0f}x), {method}",
         )
 
     # --- lifecycle --------------------------------------------------------
@@ -194,10 +196,38 @@ class DictationApp:
         if self.overlay is not None:
             # Tk is not thread safe and must own the main thread, so the
             # overlay's animation loop is what keeps the process alive here.
+            # That loop cannot also watch the hook, hence the separate watchdog.
+            threading.Thread(
+                target=self._watch_hook, args=(hook_thread,),
+                name="localflow-watchdog", daemon=True,
+            ).start()
             self.overlay.run()
         else:
             while not self._stopping.is_set() and hook_thread.is_alive():
                 time.sleep(0.15)
+
+    def _watch_hook(self, hook_thread: threading.Thread) -> None:
+        """Shut down if the keyboard hook dies.
+
+        Windows silently unhooks a hook procedure that takes too long, and the
+        hook thread can also die outright. Without this the overlay would keep
+        animating on the main thread and the app would look perfectly healthy
+        while no keypress reached it, which is the worst kind of failure to
+        debug. The non-overlay branch above gets this for free from its own
+        loop condition.
+        """
+        while not self._stopping.is_set():
+            if not hook_thread.is_alive():
+                print(
+                    "\n[hotkey] the keyboard hook stopped running, so dictation "
+                    "can no longer be triggered.\n"
+                    "         Windows unhooks a hook procedure that blocks for "
+                    "too long. Restart LocalFlow.\n"
+                )
+                self._status("error", "keyboard hook died, shutting down")
+                self.stop()
+                return
+            time.sleep(0.25)
 
     def stop(self) -> None:
         if self._stopping.is_set():

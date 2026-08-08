@@ -87,11 +87,13 @@ def init() -> list[Path]:
     for bin_dir in bin_dirs:
         _handles.append(os.add_dll_directory(str(bin_dir)))
 
-    # Also prepend to this process's PATH. add_dll_directory alone is not
-    # enough: CTranslate2 loads cuBLAS lazily on first GPU compute through a
-    # search path that does not consult it.
+    # Also prepend to this process's PATH, for the reason in the module
+    # docstring. Compare entry by entry: a substring test against the whole
+    # PATH string would skip a directory whose path happens to appear inside a
+    # longer unrelated entry.
     existing = os.environ.get("PATH", "")
-    parts = [str(d) for d in bin_dirs if str(d) not in existing]
+    already = {p.strip().rstrip("\\/").lower() for p in existing.split(os.pathsep) if p.strip()}
+    parts = [str(d) for d in bin_dirs if str(d).rstrip("\\/").lower() not in already]
     if parts:
         os.environ["PATH"] = os.pathsep.join(parts + ([existing] if existing else []))
 
