@@ -16,13 +16,24 @@ had copied.
 
 from __future__ import annotations
 
+import contextlib
 import ctypes
 import time
 from ctypes import wintypes
 
+import pywintypes  # from pywin32
 import win32clipboard  # from pywin32
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
+
+# pywintypes.error derives from Exception, NOT from OSError. Every clipboard
+# helper below therefore converts it, so callers have exactly one exception type
+# to handle. Skipping that conversion is not cosmetic: _paste_or_type catches
+# OSError to fall back to typing, so an unconverted pywintypes.error would sail
+# past the fallback, lose the transcription, and leave the dictated text sitting
+# on the clipboard because the restore in paste_text's finally would also be
+# skipped.
+_WIN32_ERRORS = (pywintypes.error, OSError)
 
 INPUT_KEYBOARD = 1
 KEYEVENTF_KEYUP = 0x0002
@@ -176,10 +187,20 @@ def _clipboard_open(retries: int = 10, delay: float = 0.02):
         try:
             win32clipboard.OpenClipboard()
             return
-        except Exception as exc:  # pywintypes.error
+        except _WIN32_ERRORS as exc:
             last = exc
             time.sleep(delay)
     raise OSError(f"could not open clipboard: {last}")
+
+
+def _clipboard_close() -> None:
+    """Best effort. Never let a close failure mask the real error.
+
+    These run in `finally` blocks, so an exception here would replace whatever
+    actually went wrong with a confusing one from the cleanup path.
+    """
+    with contextlib.suppress(*_WIN32_ERRORS):
+        win32clipboard.CloseClipboard()
 
 
 def _format_name(fmt: int) -> str:
@@ -220,8 +241,14 @@ def clipboard_is_restorable() -> bool:
         return all(
             f in TEXT_FORMATS or _format_name(f) in IGNORABLE_FORMAT_NAMES for f in formats
         )
+    except _WIN32_ERRORS:
+        # This function answers "is it safe to borrow the clipboard". If the
+        # question cannot be answered, the safe answer is no. Raising instead
+        # would break the contract callers rely on: inject() treats this as a
+        # plain bool and has no handler for it.
+        return False
     finally:
-        win32clipboard.CloseClipboard()
+        _clipboard_close()
 
 
 def _clipboard_get_text() -> str | None:
@@ -230,8 +257,10 @@ def _clipboard_get_text() -> str | None:
         if not win32clipboard.IsClipboardFormatAvailable(CF_UNICODETEXT):
             return None
         return win32clipboard.GetClipboardData(CF_UNICODETEXT)
+    except _WIN32_ERRORS as exc:
+        raise OSError(f"could not read clipboard: {exc}") from exc
     finally:
-        win32clipboard.CloseClipboard()
+        _clipboard_close()
 
 
 def _clipboard_set_text(text: str) -> None:
@@ -239,16 +268,20 @@ def _clipboard_set_text(text: str) -> None:
     try:
         win32clipboard.EmptyClipboard()
         win32clipboard.SetClipboardData(CF_UNICODETEXT, text)
+    except _WIN32_ERRORS as exc:
+        raise OSError(f"could not write clipboard: {exc}") from exc
     finally:
-        win32clipboard.CloseClipboard()
+        _clipboard_close()
 
 
 def _clipboard_clear() -> None:
     _clipboard_open()
     try:
         win32clipboard.EmptyClipboard()
+    except _WIN32_ERRORS as exc:
+        raise OSError(f"could not clear clipboard: {exc}") from exc
     finally:
-        win32clipboard.CloseClipboard()
+        _clipboard_close()
 
 
 def paste_text(text: str, restore_delay: float = 0.35) -> None:

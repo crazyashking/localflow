@@ -16,6 +16,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pywintypes
 import win32clipboard
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -182,6 +183,83 @@ try:
         inject.paste_text = real_paste
     check("locked clipboard falls back to typing", used == "type", f"(chose {used})")
     check("the text was still delivered", typed == ["some dictation"], f"(typed {typed})")
+
+    # 7. pywin32 raises pywintypes.error, which does NOT derive from OSError.
+    #    Every guard in inject.py is written as `except OSError`, so if the raw
+    #    win32 calls did not convert, a clipboard failure would sail past the
+    #    fallback and the transcription would be lost. These drive the real
+    #    failure by making the underlying win32 call raise.
+    check(
+        "pywintypes.error is not an OSError (the reason this section exists)",
+        not issubclass(pywintypes.error, OSError),
+        f"(mro {[c.__name__ for c in pywintypes.error.__mro__]})",
+    )
+
+    def boom(*args, **kwargs):
+        raise pywintypes.error(5, "GetClipboardData", "Access is denied.")
+
+    real_get = win32clipboard.GetClipboardData
+    win32clipboard.GetClipboardData = boom
+    try:
+        raised: Exception | None = None
+        try:
+            inject._clipboard_get_text()
+        except Exception as exc:
+            raised = exc
+        check(
+            "a failing win32 read surfaces as OSError",
+            isinstance(raised, OSError),
+            f"(got {type(raised).__name__})",
+        )
+
+        # The one that actually costs the user something: paste must degrade to
+        # typing rather than raise, or the dictation is gone.
+        typed.clear()
+        used = inject.inject("dictation that must survive", method="paste")
+        check("a win32 clipboard failure still falls back to typing", used == "type",
+              f"(chose {used})")
+        check("and the text was delivered", typed == ["dictation that must survive"],
+              f"(typed {typed})")
+    finally:
+        win32clipboard.GetClipboardData = real_get
+
+    # clipboard_is_restorable answers a yes/no question and inject() has no
+    # handler for it throwing, so an unanswerable question must read as "no".
+    real_enum = win32clipboard.EnumClipboardFormats
+    win32clipboard.EnumClipboardFormats = boom
+    try:
+        answer = inject.clipboard_is_restorable()
+        check("an unreadable clipboard reports unrestorable rather than raising",
+              answer is False, f"(returned {answer!r})")
+    except Exception as exc:
+        check("an unreadable clipboard reports unrestorable rather than raising",
+              False, f"(raised {type(exc).__name__})")
+    finally:
+        win32clipboard.EnumClipboardFormats = real_enum
+
+    # A failing restore must not escape paste_text and must not leave the
+    # dictation behind. Only the write is broken here, so the paste still runs.
+    inject._clipboard_set_text("user's own text")
+    real_set = win32clipboard.SetClipboardData
+    calls = {"n": 0}
+
+    def fail_second_write(fmt, data):
+        calls["n"] += 1
+        if calls["n"] >= 2:  # let the dictation land, break the restore
+            raise pywintypes.error(5, "SetClipboardData", "Access is denied.")
+        return real_set(fmt, data)
+
+    win32clipboard.SetClipboardData = fail_second_write
+    try:
+        escaped: Exception | None = None
+        try:
+            inject.paste_text("dictated sentence", restore_delay=0.0)
+        except Exception as exc:
+            escaped = exc
+        check("a failing restore does not escape paste_text", escaped is None,
+              f"(raised {type(escaped).__name__ if escaped else 'nothing'})")
+    finally:
+        win32clipboard.SetClipboardData = real_set
 
 finally:
     inject._send = real_send
