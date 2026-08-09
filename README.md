@@ -10,8 +10,30 @@ vocabulary.
 
 ## Status
 
-Working: the core dictation loop and the waveform overlay. Still to come are
-accent profiles, rule-based cleanup, and a system tray menu.
+Working: the core dictation loop and the waveform overlay.
+
+### Planned
+
+**Multiple languages.** The pinned model already understands 100 languages; the
+app simply fixes `language` to `en` in `config.py`. So this is a settings and
+switching problem rather than a modelling one: pick a language per utterance
+without breaking push-to-talk, and decide whether to auto-detect (Whisper can,
+at the cost of a slower first pass and occasional wrong guesses on short clips).
+Worth knowing that large-v3-turbo trades some multilingual accuracy for speed.
+The model registry already pins by commit and takes more than one entry, so
+offering full large-v3 for languages where turbo is weak is a config change.
+
+**Wake word.** Speaking a phrase to start dictation instead of holding a key.
+This needs a small always-on detector rather than Whisper, which is far too
+heavy to run continuously and would keep the GPU busy for nothing. The real
+design questions are the false-accept rate (a wake word that fires during a
+meeting is worse than no wake word) and whether the microphone stream staying
+open contradicts the privacy claim this project is built on. It does not, since
+nothing leaves the machine either way, but the README will have to say so
+plainly.
+
+**Also queued:** accent profiles, rule-based cleanup of the raw transcript, and
+a system tray menu.
 
 ## Requirements
 
