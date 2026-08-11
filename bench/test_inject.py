@@ -210,7 +210,8 @@ check(
 got = run_case_retrying("type", "hello from localflow", "type")
 check("type: text arrives intact", got == "hello from localflow", f"got {got!r}")
 
-# 2. Non-ASCII, since accented output is the whole point of accent profiles.
+# 2. Non-ASCII, because Whisper writes accented words and curly punctuation in
+#    ordinary English output, so injection has to carry them through intact.
 #    This read "cafe resume 123 naive" until it was noticed that the string
 #    contains no non-ASCII characters, so it proved nothing.
 tricky = "café naïve Zürich Ω 123"

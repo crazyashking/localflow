@@ -152,8 +152,8 @@ try:
         f"(now {inject._clipboard_get_text()!r})",
     )
 
-    # 3. With nothing text-shaped to restore, the dictation must NOT be left
-    #    behind. Leaving it there silently changes what the next Ctrl+V does.
+    # 3b. With nothing text-shaped to restore, the dictation must NOT be left
+    #     behind. Leaving it there silently changes what the next Ctrl+V does.
     inject._clipboard_clear()
     inject.paste_text("dictated sentence", restore_delay=0.0)
     check(

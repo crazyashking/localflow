@@ -103,7 +103,7 @@ def init() -> list[Path]:
 
 
 def describe() -> str:
-    """Human-readable summary, for the environment gate and tray diagnostics."""
+    """Human-readable summary, for the environment gate."""
     dirs = init()
     lines = [f"registered {len(dirs)} NVIDIA DLL director{'y' if len(dirs) == 1 else 'ies'}:"]
     for d in dirs:

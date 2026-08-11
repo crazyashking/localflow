@@ -74,7 +74,7 @@ for label, source, target in PAIRS:
     check(f"eases smoothly, {label}", biggest < 0.05 and converged < 0.02,
           f"(max frame step {biggest:.4f}, final gap {converged:.4f})")
 
-# 6. No transition may detour through green, which belongs to no state and
+# 5. No transition may detour through green, which belongs to no state and
 #    reads as a glitch when it flashes past.
 for label, source, target in PAIRS:
     colour = source

@@ -1,7 +1,7 @@
 """Floating waveform overlay.
 
 A draggable capsule that stays on screen for the life of the process. It shows
-a row of dots at rest, a live bar meter while you speak, and a travelling pulse
+a flat line at rest, a live bar meter while you speak, and a travelling pulse
 while the model decodes.
 
 The capsule itself takes the state colour, not just the bars, so the whole thing
