@@ -26,13 +26,18 @@ classifiers = [
 ]
 
 # Loose lower bounds, for anyone installing this as a package. They are NOT
-# how this project is meant to be installed: requirements.txt pins all 33
+# how this project is meant to be installed: requirements.txt pins all 42
 # packages to an exact version and SHA256, and that is the reproducible path.
 dependencies = [
     "faster-whisper>=1.1",
     "numpy>=1.26",
     "sounddevice>=0.4.6",
     "pywin32>=306",
+    # Both are imported directly by the wake word. onnxruntime arrives with
+    # faster-whisper as well, and is named here because wake.py depends on it
+    # in its own right rather than through anything else.
+    "openwakeword>=0.6",
+    "requests>=2.31",
 ]
 
 [project.urls]

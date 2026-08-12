@@ -47,6 +47,35 @@ DEFAULTS: dict[str, Any] = {
     "paste_threshold_chars": 120,
     "transcript_dir": str(Path.home() / "Documents" / "LocalFlow" / "transcripts"),
     "save_transcripts": True,
+    # --- wake word ---
+    # Off by default. It costs a one-off model download, keeps a small model
+    # scoring the microphone the whole time the app runs, and push-to-talk
+    # already works, so turning it on should be a decision rather than a
+    # surprise.
+    "wake_word": False,
+    # Either a phrase openWakeWord ships a pretrained model for (hey_jarvis,
+    # alexa, hey_mycroft) or the filename of a model in models/wake/custom,
+    # which is where a run of training/ puts one.
+    "wake_phrase": "hey_jarvis",
+    # Score a frame must reach to count. Raise it if the wake word fires on
+    # its own, lower it if it ignores you.
+    "wake_threshold": 0.5,
+    # Consecutive 80ms frames that must clear the threshold. This is the lever
+    # that actually reduces false accepts: one noisy frame cannot start a
+    # recording, a real phrase clears several in a row. Costs a little
+    # sensitivity.
+    "wake_patience": 2,
+    # Ignore further detections for this long after one fires, so a single
+    # phrase cannot trigger twice.
+    "wake_debounce_seconds": 3.0,
+    # What closes an utterance the wake word started:
+    #   "both"    silence closes it, and tapping the hotkey closes it early
+    #   "silence" silence only, fully hands free
+    #   "hotkey"  no timer at all, tap the hotkey when you are done
+    "wake_end_mode": "both",
+    # Seconds of silence that end an utterance in "both" and "silence" modes.
+    # See endpoint.py for why this is 2.0 rather than something snappier.
+    "wake_endpoint_silence": 2.0,
     # --- overlay ---
     # Floating waveform capsule. Drag it anywhere, including another monitor.
     "overlay": True,
@@ -60,19 +89,57 @@ DEFAULTS: dict[str, Any] = {
     # background; the bar colours are bright enough to stay legible. Lower
     # values look more like smoked glass. Clamped to a visible range.
     "overlay_opacity": 0.78,
+    # --- edge glow ---
+    # Light around the rim of the screen while an utterance is in flight. It
+    # runs alongside the capsule rather than replacing it: the capsule is the
+    # precise readout, the glow is the one you catch without looking away from
+    # what you are dictating into. Costs about 4ms per frame at 60fps, and only
+    # while an utterance is in flight.
+    "glow": True,
+    # How thick the band is, as a fraction of the screen's SHORTER side, so it
+    # keeps its proportions on any display. 0.11 is 158px on a 1440p screen.
+    "glow_thickness": 0.11,
+    "glow_opacity": 0.85,
+    # "primary" or "all". On "all" every display gets its own four windows and
+    # its own band thickness, which roughly doubles the per-frame cost for two
+    # screens.
+    "glow_monitors": "primary",
+    # The glow does not fade up all at once. Light enters at one point and
+    # travels across the screen before settling into the rim. Where it enters:
+    # an edge ("left", "right", "top", "bottom") or a corner ("top-left",
+    # "top-right", "bottom-right", "bottom-left"), which sends it diagonally.
+    "glow_sweep_from": "left",
+    # How it travels.
+    #   "wash"  light crosses the whole screen, glowing over everything on the
+    #           way, then recedes into the rim. This is the one to keep.
+    #   "lap"   a crest runs one way round the rim and back to where it started.
+    #   "split" a crest goes both ways round the rim to meet on the far side.
+    "glow_sweep_style": "wash",
+    # How long the entrance takes. 0.7s is quick enough not to delay the first
+    # word and slow enough to read as one movement. The rim styles cover more
+    # distance and want closer to 1.0. 0 turns it off for a plain fade in.
+    "glow_sweep_seconds": 0.7,
+    # After the text lands, the glow holds dim for this long to show it is
+    # listening again, then leaves. 0 makes it go the instant it is done, which
+    # reads as the app switching off rather than going back to waiting.
+    "glow_linger_seconds": 2.0,
 }
 
 
 class Settings:
     def __init__(self, data: dict[str, Any] | None = None):
         self._data = {**DEFAULTS, **(data or {})}
+        # Which keys this object has changed since it was loaded. save() writes
+        # only these, so a long-running app cannot revert an edit made to the
+        # file while it was running. See save().
+        self._dirty: set[str] = set()
 
     def __getattr__(self, name: str) -> Any:
-        # __getattr__ runs for anything not found normally, including _data
-        # itself before __init__ has set it (during copy or unpickling). Going
-        # through self._data in that state would recurse until the stack blew,
-        # hiding the real problem, so bail out explicitly first.
-        if name == "_data":
+        # __getattr__ runs for anything not found normally, including the
+        # internals below before __init__ has set them (during copy or
+        # unpickling). Going through self._data in that state would recurse
+        # until the stack blew, hiding the real problem, so bail out first.
+        if name in ("_data", "_dirty"):
             raise AttributeError(name)
         try:
             return self._data[name]
@@ -94,10 +161,30 @@ class Settings:
 
     def set(self, **values: Any) -> None:
         self._data.update(values)
+        self._dirty.update(values)
 
     def save(self, path: Path | None = None) -> None:
+        """Write back only the keys this object changed.
+
+        The app holds a snapshot of settings.json taken at startup, and the one
+        thing that writes to the file during a session is dragging the capsule.
+        Writing the whole snapshot back made that drag revert every edit made to
+        the file since the app started, silently and with no way to tell it had
+        happened. Re-reading here means an edit and a drag can coexist.
+        """
         path = path or SETTINGS_PATH
-        path.write_text(json.dumps(self._data, indent=2), encoding="utf-8")
+        on_disk: dict[str, Any] = {}
+        if path.exists():
+            try:
+                on_disk = json.loads(path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                # A file too broken to read is one this write replaces. load()
+                # has already warned about it by the time anything can save.
+                on_disk = {}
+        merged = {**DEFAULTS, **on_disk,
+                  **{k: self._data[k] for k in self._dirty}}
+        path.write_text(json.dumps(merged, indent=2), encoding="utf-8")
+        self._dirty.clear()
 
 
 def write_default_settings(path: Path | None = None) -> Path:

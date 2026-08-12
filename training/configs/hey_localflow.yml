@@ -1,0 +1,67 @@
+# Training config for the "hey localflow" wake word.
+#
+# The control in the comparison. Four syllables against two, on the theory that
+# a longer phrase sits further from ordinary English and so fires less often on
+# its own. It did: on the same validation audio this reached 81.3% detection at
+# 0.09 false accepts an hour, where "hey flow" managed 69.5% for the same rate.
+# The README's wake word section has the full table.
+#
+# Both configs are kept because that comparison is the evidence for the numbers
+# quoted there, and it cannot be rerun from a config that no longer exists.
+#
+# Everything except the phrase and its confusables is identical to
+# hey_flow.yml on purpose. A comparison where two things differ measures
+# nothing.
+
+target_phrase:
+  - "hey localflow"
+  - "hey local flow"
+model_name: hey_localflow
+model_type: dnn
+layer_size: 32
+
+# Shorter than the "hey flow" list, and that is the entire point of the
+# experiment: there is simply less in ordinary English that sounds like four
+# syllables ending in "localflow".
+custom_negative_phrases:
+  - "hello"
+  - "hey local"
+  - "the local flow"
+  - "local flow"
+  - "hey flow"
+  - "low flow"
+  - "hey vocal"
+  - "local"
+
+n_samples: 30000
+n_samples_val: 2000
+tts_batch_size: 50
+
+augmentation_rounds: 1
+augmentation_batch_size: 16
+background_paths_duplication_rate:
+  - 1
+
+steps: 50000
+batch_n_per_class:
+  ACAV100M_sample: 1024
+  adversarial_negative: 50
+  positive: 50
+max_negative_weight: 1500
+# See the note in hey_flow.yml on why the trainer's printed figure runs high.
+target_false_positives_per_hour: 0.2
+
+total_length: 16000
+# train.py appends model_name itself. See the note in hey_flow.yml.
+output_dir: training/output
+
+piper_sample_generator_path: training/piper-sample-generator
+# See the note in hey_flow.yml: the 16khz/ subdirectory, not its parent.
+rir_paths:
+  - training/data/rirs/16khz
+# See the note in hey_flow.yml: the wav/ subdirectory, not the parquet.
+background_paths:
+  - training/data/background/wav
+feature_data_files:
+  ACAV100M_sample: training/data/openwakeword_features_ACAV100M_2000_hrs_16bit.npy
+false_positive_validation_data_path: training/data/validation_set_features.npy

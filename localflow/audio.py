@@ -11,8 +11,10 @@ effectively zero rather than paying stream-open cost on every utterance.
 
 from __future__ import annotations
 
+import contextlib
 import threading
 from collections import deque
+from collections.abc import Callable
 from typing import NamedTuple
 
 import numpy as np
@@ -22,6 +24,13 @@ from .models import SAMPLE_RATE
 
 CHANNELS = 1
 BLOCKSIZE = 1024  # ~64ms at 16kHz
+
+# Audio kept on hand while idle, so a recording can start slightly in the past.
+# The wake word detector fires 200-400ms after the phrase ends, and people
+# start their sentence immediately, so without this the first word is already
+# gone by the time recording begins. One second covers the detector's latency
+# with room to spare and costs 64KB.
+PREROLL_SECONDS = 1.0
 
 # RMS that reads as a full-height meter. Speech sits roughly between 0.02 and
 # 0.15 depending on the mic, the gain and how close you sit, so this is the one
@@ -44,8 +53,14 @@ class Recorder:
         max_seconds: float = 120.0,
         min_seconds: float = 0.3,
         level_ceiling: float = DEFAULT_LEVEL_CEILING,
+        on_block: Callable[[np.ndarray], None] | None = None,
     ):
         self.device = _resolve_device(device)
+        # Called with every captured block, recording or not, so the wake word
+        # detector can listen without opening a second stream on the same
+        # device. It runs on the PortAudio thread, so whatever is passed here
+        # must only enqueue and return. See the note in _callback.
+        self.on_block = on_block
         self.max_seconds = max_seconds
         self.min_seconds = min_seconds
         # Guarded: a zero or negative ceiling from settings.json would divide by
@@ -54,6 +69,11 @@ class Recorder:
 
         self._lock = threading.Lock()
         self._frames: deque[np.ndarray] = deque()
+        # Rolling window of the most recent idle audio, for begin(preroll=True).
+        # maxlen means old blocks fall off on their own, with no bookkeeping.
+        self._preroll: deque[np.ndarray] = deque(
+            maxlen=max(1, int(PREROLL_SECONDS * SAMPLE_RATE / BLOCKSIZE))
+        )
         self._recording = False
         self._n_samples = 0
         self._peak = 0.0
@@ -108,15 +128,30 @@ class Recorder:
         if status.input_overflow:
             self._overflowed = True
 
+        block = indata[:, 0].copy()
+
         # Level tracking runs even when not recording, so the overlay can show
         # live input. Fast attack and slow release is what makes a meter look
         # responsive to speech but not jittery: it snaps up on a syllable and
         # eases back down instead of flickering.
-        block_rms = float(np.sqrt(np.mean(indata[:, 0].astype(np.float64) ** 2)))
+        block_rms = float(np.sqrt(np.mean(block.astype(np.float64) ** 2)))
         alpha = 0.55 if block_rms > self._live_level else 0.12
         self._live_level += (block_rms - self._live_level) * alpha
 
+        # The wake word detector's tap. Contained, because an exception raised
+        # here would propagate into PortAudio's callback and kill the stream,
+        # taking dictation down with it over a fault in an optional feature.
+        if self.on_block is not None:
+            with contextlib.suppress(Exception):
+                self.on_block(block)
+
         if not self._recording:
+            # Idle audio is kept so begin(preroll=True) can reach backwards.
+            # Under the lock because begin() drains this from another thread,
+            # and iterating a deque while it is appended to raises. An
+            # uncontended lock costs tens of nanoseconds against a 64ms budget.
+            with self._lock:
+                self._preroll.append(block)
             return
         with self._lock:
             if self._n_samples >= self.max_seconds * SAMPLE_RATE:
@@ -125,20 +160,32 @@ class Recorder:
                 # user gets a transcription that just stops, with no clue why.
                 self._hit_cap = True
                 return
-            block = indata[:, 0].copy()
             self._frames.append(block)
             self._n_samples += len(block)
             peak = float(np.abs(block).max())
             if peak > self._peak:
                 self._peak = peak
 
-    def begin(self) -> None:
-        """Start accumulating audio. Safe to call when already recording."""
+    def begin(self, preroll: bool = False) -> None:
+        """Start accumulating audio. Safe to call when already recording.
+
+        With preroll=True the recording opens with the last PREROLL_SECONDS of
+        idle audio already in it. That is for the wake word, which only knows
+        the phrase was spoken after it has finished, by which point the user is
+        usually a word into their sentence.
+
+        Push-to-talk passes False on purpose. The key goes down before you
+        speak, so there is nothing to recover, and reaching backwards would
+        only fold in room noise or the tail of whatever was said last.
+        """
         if self._stream is None:
             self.open()
         with self._lock:
             self._frames.clear()
-            self._n_samples = 0
+            if preroll:
+                self._frames.extend(self._preroll)
+            self._preroll.clear()
+            self._n_samples = sum(len(f) for f in self._frames)
             self._peak = 0.0
             self._overflowed = False
             self._hit_cap = False
@@ -180,6 +227,11 @@ class Recorder:
         """
         scaled = min(self._live_level / self.level_ceiling, 1.0)
         return scaled**LEVEL_CURVE if scaled > 0 else 0.0
+
+    @property
+    def recording(self) -> bool:
+        """True while audio is being accumulated."""
+        return self._recording
 
     @property
     def overflowed(self) -> bool:

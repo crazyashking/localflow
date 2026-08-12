@@ -81,6 +81,49 @@ inject._send([inject._key_event(vk=VK_OTHER, flags=inject.KEYEVENTF_KEYUP)])
 time.sleep(0.2)
 check("other keys ignored", (len(presses), len(releases)) == before)
 
+# Reinstalling the hook. Windows drops a low-level keyboard hook across a sleep
+# and says nothing: the thread stays alive, no message arrives, and the hook
+# simply stops firing. The app then looks perfectly healthy while no keypress
+# reaches it, which is the failure this exists to recover from. Reported as "the
+# hotkey stopped working after the machine woke up".
+before_rehooks = listener.rehooks
+check("rehook accepted", listener.rehook())
+for _ in range(50):
+    if listener.rehooks > before_rehooks:
+        break
+    time.sleep(0.02)
+check("hook thread reinstalled it", listener.rehooks == before_rehooks + 1,
+      f"({listener.rehooks} total)")
+check("and stayed running", listener.running)
+
+# The replacement must actually be hooked up, which only a real event proves.
+presses.clear()
+releases.clear()
+inject._send([inject._key_event(vk=VK_TEST)])
+time.sleep(0.1)
+inject._send([inject._key_event(vk=VK_TEST, flags=inject.KEYEVENTF_KEYUP)])
+time.sleep(0.25)
+check("the fresh hook still fires", len(presses) == 1 and len(releases) == 1,
+      f"({len(presses)} press, {len(releases)} release)")
+
+# A key held when the machine slept never delivered its key-up, so the reinstall
+# has to forget it. Otherwise the next press is swallowed as a repeat and
+# push-to-talk is dead until restart.
+inject._send([inject._key_event(vk=VK_TEST)])
+time.sleep(0.1)
+listener.rehook()
+for _ in range(50):
+    if listener.rehooks == before_rehooks + 2:
+        break
+    time.sleep(0.02)
+presses.clear()
+inject._send([inject._key_event(vk=VK_TEST)])
+time.sleep(0.2)
+check("a key held across the reinstall does not deadlock the next press",
+      len(presses) == 1, f"({len(presses)})")
+inject._send([inject._key_event(vk=VK_TEST, flags=inject.KEYEVENTF_KEYUP)])
+time.sleep(0.15)
+
 listener.stop()
 thread.join(timeout=2)
 check("hook uninstalled cleanly", not thread.is_alive())

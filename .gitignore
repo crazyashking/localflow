@@ -3,3 +3,18 @@ __pycache__/
 *.pyc
 settings.json
 models/
+.ruff_cache/
+
+# Editor and agent local state. Named here rather than left to a machine's
+# global ignore file, so a clone on any machine keeps it out of a commit.
+.claude/
+.vscode/
+.idea/
+
+# Wake word training. The configs are committed because they are how the
+# models were made and are worth reading; the venv, the tens of GB of training
+# data, the cloned generator, and the intermediate output are not.
+training/.venv/
+training/data/
+training/output/
+training/piper-sample-generator/

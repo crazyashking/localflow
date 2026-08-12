@@ -1,18 +1,26 @@
 # LocalFlow
 
-Push-to-talk dictation that runs entirely on this machine. Hold a key, speak,
-release, and the text appears wherever your cursor is. No audio, text, or
-telemetry ever leaves the computer, and it works with the network off.
+Dictation that runs entirely on your own machine. Hold a key or say a wake word,
+speak, and the text appears wherever your cursor is. No audio, text, or
+telemetry ever leaves your computer, and it works with the network off.
 
 Built as a replacement for Wispr Flow, which is cloud-only, has no offline mode,
 caps the free tier at 2,000 words a week, and offers no accent tuning or custom
 vocabulary.
 
-## Status
+## What it does
 
-Working: the core dictation loop and the waveform overlay.
+- **Push-to-talk.** Hold a key, speak, release. Working out of the box.
+- **Wake word.** Say a phrase to start dictation with no key at all, and stop
+  talking to end it. Off by default, one setting to turn on.
+- **Two status displays.** A small draggable capsule showing a live level meter,
+  and light around the edge of the screen while an utterance is in flight.
+  Either can be turned off without affecting the other.
+- **Transcripts.** Every utterance is appended to a dated markdown file.
+- **Train your own wake phrase.** `training/` builds a detector for a phrase
+  nobody has trained yet.
 
-### Planned
+## Planned
 
 **Multiple languages.** The pinned model already understands 100 languages; the
 app simply fixes `language` to `en` in `config.py`. So this is a settings and
@@ -23,29 +31,39 @@ Worth knowing that large-v3-turbo trades some multilingual accuracy for speed.
 The model registry already pins by commit and takes more than one entry, so
 offering full large-v3 for languages where turbo is weak is a config change.
 
-**Wake word.** Speaking a phrase to start dictation instead of holding a key.
-This needs a small always-on detector rather than Whisper, which is far too
-heavy to run continuously and would keep the GPU busy for nothing. The real
-design questions are the false-accept rate (a wake word that fires during a
-meeting is worse than no wake word) and whether the microphone stream staying
-open contradicts the privacy claim this project is built on. It does not, since
-nothing leaves the machine either way, but the README will have to say so
-plainly.
-
 **Also queued:** accent profiles, rule-based cleanup of the raw transcript, and
 a system tray menu.
 
 ## Requirements
 
-Windows and an NVIDIA GPU. The Windows dependency is not incidental: the hotkey
-is a `WH_KEYBOARD_LL` hook, text injection uses `SendInput`, and the overlay
-relies on layered non-activating windows. There is no macOS or Linux path.
+| | minimum | why |
+|---|---|---|
+| OS | Windows 10 or 11, 64-bit | The hotkey is a `WH_KEYBOARD_LL` hook, text injection uses `SendInput`, and both overlays are layered non-activating windows. There is no macOS or Linux path. |
+| GPU | NVIDIA with 4 GB VRAM | Whisper runs on CUDA with no CPU fallback. Measured footprint is 2.2 GB, so a 4 GB card leaves room for your desktop. |
+| Driver | 527 or newer | Anything that supports CUDA 12, which the pinned cuBLAS and cuDNN wheels need. |
+| Python | 3.14, 64-bit | See below. This one is strict. |
+| Disk | 4.5 GB | 2.5 GB of packages, 1.6 GB for the speech model, and a few MB of wake word models. |
+| RAM | 8 GB | The app holds about 700 MB once the model is warm. |
+| Mic | any | Whatever Windows already uses, or name a specific one in settings. |
 
-The code targets Python 3.11 and newer, but **`requirements.txt` is pinned to
-CPython 3.14 on Windows x64**. It carries one SHA256 per package, and pip picks
-a wheel tagged for the running interpreter, so a hash-pinned install on a
-different minor version will fail on anything with a C extension. Use 3.14, or
-re-resolve the pins for your version.
+**An NVIDIA GPU is not optional.** `models.py` fixes the device to CUDA and the
+precision to FP16, and there is no setting to change it. On an AMD or Intel
+machine the app will not start. Check this before downloading 1.6 GB of weights.
+
+**Python 3.14 specifically.** The code itself targets 3.11 and newer, but
+`requirements.txt` is pinned to CPython 3.14 on Windows x64 with one SHA256 per
+package. pip picks a wheel tagged for the running interpreter, so a hash-pinned
+install on a different minor version fails on anything with a C extension. Use
+3.14, or re-resolve the pins for your own version.
+
+4 GB is the floor and 6 GB or more is comfortable, since the figure above is
+LocalFlow alone and your desktop and browser want VRAM too. Decode speed scales
+with the GPU, and the bar for dictation is low: anything that decodes faster
+than you speak feels instant, and the measurements below clear that bar by
+roughly twenty times.
+
+The wake word detector runs on the CPU and never touches the GPU, so leaving it
+on all day costs no VRAM.
 
 ## Install
 
@@ -70,21 +88,42 @@ That downloads the pinned model on first run, roughly 1.6 GB.
 .\.venv\Scripts\python.exe -m localflow
 ```
 
-Hold **Right Ctrl**, speak, release. Text is typed at the cursor and appended to
+Click into whatever you want to dictate into, then hold **Right Ctrl**, speak,
+and release. The text is typed at your cursor and appended to
 `Documents\LocalFlow\transcripts\YYYY-MM-DD.md`.
 
 Close the console window to quit.
 
-## Measured on this machine
+Push-to-talk is all you get on a first run. To start by voice instead, set
+`"wake_word": true` in `settings.json` and pick a phrase. Three are ready to use
+without training anything, so the shortest path is:
 
-RTX 5060 Ti (16GB), i7-14700K, Whisper large-v3-turbo in FP16:
+```json
+"wake_word": true,
+"wake_phrase": "hey_jarvis",
+```
+
+The [Wake word](#wake-word) section covers choosing a phrase and setting a
+threshold that does not fire while you are on a call.
+
+## What to expect
+
+Numbers from the development machine, an RTX 5060 Ti and an i7-14700K, running
+Whisper large-v3-turbo in FP16. Yours will differ with your GPU, and the shape
+is what matters: decoding finishes far faster than you can talk, so the wait
+after you stop speaking is a fraction of a second.
 
 | | |
 |---|---|
-| Model warm-up at startup | ~2.0s, paid once |
-| Decode speed | ~22x real time (a 6s sentence decodes in ~0.25s) |
-| Mean WER on the test set | 2.1% |
-| VRAM | ~1.6 GB resident |
+| Model warm-up at startup | about 2s, paid once |
+| Decode speed | about 22x real time, so a 6s sentence takes 0.25s |
+| Mean word error rate | 2.1% on the bundled test set |
+| VRAM while running | 2.2 GB, of which 1.6 GB is the model |
+| RAM while running | about 700 MB |
+
+Reproduce the accuracy and speed figures yourself with
+`bench\test_pipeline.py`, which decodes known sentences and reports the error
+rate against them.
 
 ## Settings
 
@@ -95,7 +134,11 @@ RTX 5060 Ti (16GB), i7-14700K, Whisper large-v3-turbo in FP16:
 | `hotkey_vk` | Virtual-key code to hold. `163` = Right Ctrl, `165` = Right Alt, `145` = Scroll Lock. |
 | `hotkey_suppress` | If true the key is swallowed, so the focused app never sees it. Set false if you still use Right Ctrl for shortcuts. |
 | `input_device` | `null` for the Windows default, or a name substring such as `"Brio"`. |
+| `model` | Whisper model, default `large-v3-turbo`, which fits the 4 GB minimum above. `medium`, `small` and `base` decode faster and less accurately, and are worth trying only if the default does not fit or is not fast enough. |
+| `language` | Language code, default `en`. `null` lets Whisper detect it, which costs a little speed. |
 | `inject_method` | `auto`, `paste`, or `type`. See below. |
+| `save_transcripts` | Whether every utterance is also appended to a file on disk, default `true`. Set `false` to keep nothing. |
+| `transcript_dir` | Where those files go, default `Documents\LocalFlow\transcripts`. |
 | `max_seconds` | Longest single utterance, default 600. You are warned if you hit it. |
 | `min_seconds` | Shortest utterance worth transcribing, default 0.3. Anything briefer is treated as an accidental tap of the hotkey and dropped. |
 | `mic_level_ceiling` | Mic RMS that fills the overlay meter, default 0.14. Display only. Lower it if the bars barely move. |
@@ -103,6 +146,223 @@ RTX 5060 Ti (16GB), i7-14700K, Whisper large-v3-turbo in FP16:
 | `overlay_bottom_margin` | Pixels above the bottom of the screen, used until you drag it. |
 | `overlay_x` / `overlay_y` | Saved automatically when you drag. `null` means default spot. |
 | `overlay_opacity` | How solid the capsule looks, default 0.78. See below. |
+| `glow` | Light around the edge of the screen while an utterance is in flight. `false` disables it. See below. |
+| `glow_thickness` | Band width as a fraction of the screen's shorter side, default 0.11. |
+| `glow_opacity` | Brightest the band ever gets, default 0.85. |
+| `glow_monitors` | `primary` or `all`. |
+| `glow_sweep_from` | Where the light enters. An edge (`left`, `right`, `top`, `bottom`) or a corner (`top-left`, `top-right`, `bottom-right`, `bottom-left`), which sends it diagonally. Default `left`. |
+| `glow_sweep_style` | `wash` crosses the whole screen, default. `lap` and `split` run a crest around the rim instead. See below. |
+| `glow_sweep_seconds` | How long the entrance takes, default 0.7. `0` restores a plain fade in. |
+| `glow_linger_seconds` | How long it holds dim after your text lands, showing it is listening again. Default 2.0, `0` to leave immediately. |
+| `wake_word` | Start dictation by speaking a phrase. `false` by default. See below. |
+| `wake_phrase` | `hey_jarvis`, `alexa`, `hey_mycroft`, or the name of a model in `models/wake/custom`. |
+| `wake_threshold` | Score a phrase must reach, default 0.5. Raise it if the wake word fires on its own. |
+| `wake_patience` | Consecutive frames above the threshold before it counts, default 2. This is what keeps single-frame spikes from firing. |
+| `wake_debounce_seconds` | Hold-off after a detection, default 3.0. |
+| `wake_end_mode` | `both`, `silence`, or `hotkey`. How a spoken utterance ends. |
+| `wake_endpoint_silence` | Seconds of quiet that end an utterance in `silence` or `both`, default 2.0. |
+
+## Edge glow
+
+Light around the rim of the screen while an utterance is in flight. It arrives
+with a wash: light enters from the left edge, crosses the whole screen with a
+soft glow over everything on the way, and recedes into the rim as it reaches the
+far side. Once it has settled the band thickens and brightens with your voice,
+pulses slowly in amber while the model decodes, holds dim for a couple of
+seconds to show it is listening again, then fades out evenly.
+
+Three deliberate asymmetries:
+
+- **The arrival travels and the dismissal does not.** Arriving is worth
+  watching. Leaving should get out of the way.
+- **The wash covers the screen and the steady state only the rim.** The
+  entrance is 0.7 seconds and wants your attention. The rest of the utterance
+  can be minutes long and has to stay out of your way while you read what you
+  are dictating into.
+- **It lingers after your text lands.** Without it the amber decoding pulse
+  vanishes the instant the text appears, which reads as the app switching off
+  rather than going back to waiting for you.
+
+It runs alongside the capsule instead of replacing it. The capsule is the exact
+readout and sits in one place. The glow is peripheral, so it tells you the app
+is listening while you are looking at whatever you are dictating into. Turning
+either off leaves the other working.
+
+The band is a Win32 layered window with a real alpha channel per pixel, drawn
+with numpy. Both were already dependencies, so it adds nothing to install and
+no second process. Some detail on how it stays cheap:
+
+- Four windows tile the rim rather than one covering the screen, which is a
+  third of the pixels for the same picture. They meet without a seam because
+  each measures distance to the nearest screen edge with the same function.
+- Colour and alpha depend only on that distance, so a frame is one lookup table
+  and one indexing pass instead of full-resolution float maths.
+- The gain along the light's path is a second axis on that table rather than a
+  multiply over every pixel. Scaling pixels directly costs about 10ms a frame at
+  1440p, which does not fit; folding the gain into the index keeps the entrance
+  at the same one indexing pass as the steady state.
+- The wash is the exception that does cover the screen, so it draws into a
+  buffer a quarter of the width and height and hands GDI the job of stretching
+  it up. Premultiplied alpha interpolates correctly, so the upscale is free of
+  artefacts and costs a sixteenth of the pixels.
+- Measured cost is 4.2ms per frame on one 1440p screen and 7.0ms across two
+  monitors, against a 16.7ms budget at 60fps. The wash measures 1.4ms and the
+  rim styles 6.3ms. `bench\test_glow.py` fails if any of them regresses.
+
+Two other entrances are available through `glow_sweep_style`, both of which run
+a crest around the rim instead of across the screen: `lap` sends it one way
+round and back to where it started, `split` sends it both ways at once to meet
+on the far side. Those need the corners to flow, and the four bands are four
+separate windows that know nothing about each other, so each band carries its
+position along one shared clockwise path around the screen. The front also
+overruns the far side by three trail lengths before the sweep ends, because
+stopping it exactly at the meeting point parks the crest there and leaves a
+permanent bright spot.
+
+It runs at 60fps rather than the capsule's 40. The band is a large, slow shape
+in peripheral vision, which is where frame rate shows up worst, and at 30fps the
+travelling ripple visibly stepped.
+
+The band ripples in thickness rather than in brightness, because a brightness
+ripple reads as twinkling. Level drives it through an envelope follower with a
+45ms attack and a 220ms release, the same shape as an audio compressor: raw RMS
+moves faster than the eye reads as motion, so it strobes.
+
+Four things keep the motion clean, each of which read as a glitch before it was
+fixed:
+
+- **Visibility and brightness are separate numbers**, multiplied at the end. As
+  one value, the fade-in curve also bends the response to your voice, so the
+  band looks like it is reacting while it is still arriving.
+- **The fade is smoothstepped**, so it leaves and arrives at rest slowly. A
+  linear fade hits full brightness at full speed and stops dead, and the eye
+  catches that corner even when the fade is slow.
+- **Loudness runs through a saturating curve** instead of a multiply that
+  clips. With a clip, everything above about two thirds volume looks identical.
+- **The ripple eases in and out** on its own time constant. Switching it on the
+  speaking flag changed the shape of the whole band in a single frame the
+  moment you stopped talking.
+
+Every easing is written as a time constant in seconds and converted per frame,
+so changing the frame rate does not silently retime the animation.
+
+Preview it without recording anything:
+
+```powershell
+.\.venv\Scripts\python.exe bench\demo_glow.py
+.\.venv\Scripts\python.exe bench\demo_glow.py --repeat 3        # watch the sweep again
+.\.venv\Scripts\python.exe bench\demo_glow.py --sweep-from top-left
+.\.venv\Scripts\python.exe bench\demo_glow.py --sweep-style lap --sweep-seconds 1.2
+.\.venv\Scripts\python.exe bench\demo_glow.py --monitors all --thickness 0.16
+```
+
+It is click-through, never takes focus, and stays out of Alt+Tab. Exclusive
+fullscreen games will cover it; borderless windowed is fine.
+
+### Surviving a sleep
+
+A layered window's device context and bitmap belong to a display configuration.
+Sleeping the machine, unplugging a monitor, or changing resolution invalidates
+all of it, after which `UpdateLayeredWindow` fails quietly on every call and the
+glow is gone for the rest of the session with nothing logged.
+
+Three things catch that, and each ends in a full rebuild, since none of it can
+be repaired in place:
+
+- A gap of more than 5 seconds between frames. A frame takes 16ms, so a gap that
+  size means the process was frozen. This needs no window and no power API.
+- The monitor layout differing from the last check, two seconds apart.
+- `UpdateLayeredWindow` failing several times in a row.
+
+Animation state survives a rebuild, so one landing mid-utterance does not replay
+the sweep or lose your level. The capsule reasserts topmost and re-clamps itself
+to the desktop on the same schedule, which covers being buried by a full screen
+app or stranded off screen by an unplugged monitor.
+
+The keyboard hook needs the same treatment for a different reason. Windows drops
+a low-level hook across a sleep without reporting it: no message arrives, the
+thread stays alive, and the hook simply stops firing, so the app looks perfectly
+healthy while no keypress reaches it. On resume it is reinstalled and any key
+held at the moment of sleep is forgotten, since its key-up was never delivered.
+
+## Wake word
+
+Off by default. Turned on, LocalFlow keeps a small detector running on the
+microphone and starts recording when it hears the phrase. Push-to-talk keeps
+working exactly as before; the two do not interfere.
+
+Whisper is far too heavy to run continuously, so the detector is
+[openWakeWord](https://github.com/dscripka/openWakeWord), a 215 KB model on
+ONNX runtime. It never uses the GPU and never sees Whisper. **Nothing leaves
+the machine.** An always-on microphone sounds like it contradicts the privacy
+claim this project is built on, so to be explicit: the audio is scored locally
+by a model on your disk, the rolling buffer is a second long and is overwritten
+in place, and there is no network code in the detector at all.
+
+Three pretrained phrases ship without training anything: `hey_jarvis`,
+`alexa`, `hey_mycroft`. They are downloaded on first use and checked against a
+pinned SHA256.
+
+### The false-accept problem, measured
+
+A wake word that fires during a meeting is worse than no wake word. So both
+candidate phrases were trained identically and measured on the same 10.7 hours
+of validation audio, through LocalFlow's own rule (`wake_patience` consecutive
+frames, then `wake_debounce_seconds` of hold-off) rather than through the
+trainer's single-frame count.
+
+| phrase | threshold | detected | false accepts/hour |
+|---|---|---|---|
+| `hey flow` | 0.5 | 77.1% | 0.47 |
+| `hey flow` | 0.8 | 69.5% | 0.09 |
+| `hey localflow` | 0.5 | 81.3% | 0.09 |
+| `hey localflow` | 0.6 | 80.3% | 0.00 |
+
+Two syllables was the problem. "hey flow" sits close to "hello", "hey Joe" and
+"cash flow", and no threshold fixes that: at a matched false-accept rate of
+0.09/hour it detects 69.5% where "hey localflow" detects 81.3%. Four syllables
+is simply further from ordinary English. Both models were trained on 30,000
+synthetic positives and 30,000 adversarial negatives under identical settings,
+so the phrase is the only thing that differs.
+
+Reproduce either number with:
+
+```powershell
+.\.venv\Scripts\python.exe bench\eval_wake.py hey_localflow
+```
+
+The detection figures come from held-out synthetic clips spanning many voices
+and speeds, which is harsher than one person saying the phrase into their own
+microphone. Treat them as a floor and measure your own room with
+`bench\demo_wake.py`. Measured live on one voice and one microphone, "hey flow"
+scored between 0.940 and 0.970 on every attempt, so a threshold of 0.8 caught
+all of them. That is far above the synthetic figure, which is the point of
+measuring your own room.
+
+**Neither of these two models is in the repo.** `models/` is gitignored,
+because a trained detector is a build output rather than source. Clone this and
+you get the three pretrained phrases, which download on first use and are
+enough to try the feature:
+
+```json
+"wake_word": true,
+"wake_phrase": "hey_jarvis",
+```
+
+For "hey flow" or a phrase of your own, run the training in `training/` and
+drop the resulting `.onnx` into `models/wake/custom/`. The two config files that
+produced the table above are committed at `training/configs/`, so the runs are
+reproducible.
+
+One number from that table is worth carrying into your own tuning whatever
+phrase you pick: a hold-off of `wake_debounce_seconds` follows every detection,
+so saying the phrase again inside that window does nothing. Testing at a natural
+three second rhythm looks exactly like a detector missing one attempt in three.
+
+### Training your own phrase
+
+`training/` builds a model for a phrase nobody has trained yet, and is entirely
+separate from running LocalFlow. See `training/README.md`.
 
 ## The overlay
 
@@ -307,6 +567,9 @@ window is focused, so click into a text field first, then hold the hotkey.
 .\.venv\Scripts\python.exe bench\test_overlay_drag.py    # drag, clamping, monitors
 .\.venv\Scripts\python.exe bench\demo_overlay.py    # overlay visuals + focus safety
 .\.venv\Scripts\python.exe bench\demo_styles.py     # compare meter shapes by eye
+.\.venv\Scripts\python.exe bench\test_wake_modes.py # wake state machine, all end modes
+.\.venv\Scripts\python.exe bench\test_glow.py       # rim tiling, falloff, frame budget
+.\.venv\Scripts\python.exe bench\demo_glow.py       # watch the edge glow, scripted
 ```
 
 `bench/samples/*.wav` are generated by Windows SAPI, so the expected text is known
@@ -344,7 +607,7 @@ scripts have to extend `sys.path` before importing `localflow`.
 
 ## Dependencies and supply-chain handling
 
-`requirements.txt` pins all 33 packages to an exact version and SHA256. Install
+`requirements.txt` pins all 42 packages to an exact version and SHA256. Install
 only with:
 
 ```powershell
@@ -376,6 +639,9 @@ localflow/
   asr.py       warm-resident Whisper model, anti-hallucination settings
   inject.py    clipboard paste / Unicode typing at the cursor
   overlay.py   the draggable Tk capsule and its colour engine
+  glow.py      screen edge glow: Win32 layered windows, pixels built in numpy
+  wake.py      openWakeWord detector, model resolution and digest pinning
+  endpoint.py  decides when a spoken utterance has ended
   history.py   dated markdown transcripts
   models.py    model registry, pinned by commit
   config.py    settings.json
@@ -384,7 +650,11 @@ localflow/
 Threading: the keyboard hook owns its own thread and must never block, since
 Windows silently unhooks a slow hook procedure. Callbacks only flip recording
 state and hand audio to a single worker thread, which keeps utterances in order.
-Tk is not thread safe, so the overlay's animation loop owns the main thread.
+Tk is not thread safe, so the overlay's animation loop owns the main thread. The
+edge glow draws on a thread of its own, because its windows are pure Win32 and
+take no input, so it works whether or not the capsule is enabled and its frame
+rate does not compete with Tk's. It reports failures instead of raising: nothing
+about it can take dictation down.
 
 ## License
 

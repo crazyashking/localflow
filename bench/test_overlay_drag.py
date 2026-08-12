@@ -60,7 +60,50 @@ def settled(root, was: tuple[int, int], timeout: float = 2.0) -> tuple[int, int]
     return (root.winfo_x(), root.winfo_y())
 
 
-from localflow.config import DEFAULTS  # noqa: E402
+from localflow.config import DEFAULTS, Settings  # noqa: E402
+
+print("saving a position keeps the rest of the file")
+# Dragging the capsule is the only thing that writes settings.json while the app
+# is running, and the app is holding a snapshot taken at startup. Writing that
+# whole snapshot back reverted every edit made to the file since, silently: a
+# glow setting changed and then a drag put the old value straight back. No
+# amount of looking at the capsule would show this, so it is checked here.
+import json  # noqa: E402
+import tempfile  # noqa: E402
+
+with tempfile.TemporaryDirectory() as tmp:
+    settings_file = Path(tmp) / "settings.json"
+    settings_file.write_text(json.dumps({
+        "overlay_x": 10, "overlay_y": 20, "glow_sweep_from": "left",
+    }), encoding="utf-8")
+    running = Settings.load(settings_file)
+
+    # Someone edits the file while the app runs, the way you would to try a
+    # different glow.
+    settings_file.write_text(json.dumps({
+        "overlay_x": 10, "overlay_y": 20, "glow_sweep_from": "bottom-right",
+    }), encoding="utf-8")
+
+    running.set(overlay_x=333, overlay_y=444)
+    running.save(settings_file)
+    written = json.loads(settings_file.read_text(encoding="utf-8"))
+    check("the dragged position is written",
+          (written["overlay_x"], written["overlay_y"]) == (333, 444),
+          f"({written['overlay_x']}, {written['overlay_y']})")
+    check("an edit made while the app ran survives the drag",
+          written["glow_sweep_from"] == "bottom-right",
+          f"(got {written['glow_sweep_from']!r})")
+    check("and a key the file never had is filled in from the defaults",
+          written["glow_sweep_style"] == DEFAULTS["glow_sweep_style"])
+
+    # A second save must not resurrect the first one's values, which is what a
+    # dirty set that never clears would do.
+    settings_file.write_text(json.dumps({**written, "glow_sweep_from": "top"}),
+                             encoding="utf-8")
+    running.save(settings_file)
+    again = json.loads(settings_file.read_text(encoding="utf-8"))
+    check("a save with nothing changed rewrites nothing",
+          again["glow_sweep_from"] == "top", f"(got {again['glow_sweep_from']!r})")
 
 overlay = WaveOverlay(
     get_level=lambda: 0.0,
@@ -68,7 +111,7 @@ overlay = WaveOverlay(
     on_move=lambda x, y: moves.append((x, y)),
 )
 
-print("overlay drag checks")
+print("\noverlay drag checks")
 
 
 def driver() -> None:

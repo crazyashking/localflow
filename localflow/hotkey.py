@@ -34,6 +34,11 @@ WM_SYSKEYUP = 0x0105
 WM_QUIT = 0x0012
 LLKHF_INJECTED = 0x10
 
+# Our own message, asking the hook thread to tear the hook down and install a
+# fresh one. A hook can only be installed and removed from the thread that owns
+# it, so a reinstall has to be posted there rather than called across threads.
+WM_REHOOK = 0x0400 + 17  # WM_APP + 17
+
 HC_ACTION = 0
 
 LRESULT = ctypes.c_ssize_t
@@ -109,6 +114,7 @@ class HotkeyListener:
         # hotkey.
         self.allow_injected = allow_injected
         self.events_seen = 0
+        self.rehooks = 0
 
         self._hook = None
         self._thread_id: int | None = None
@@ -168,10 +174,44 @@ class HotkeyListener:
                 ret = user32.GetMessageW(ctypes.byref(msg), None, 0, 0)
                 if ret in (0, -1):  # WM_QUIT, or error
                     break
+                if msg.message == WM_REHOOK:
+                    self._reinstall()
         finally:
             self._running.clear()
             user32.UnhookWindowsHookEx(self._hook)
             self._hook = None
+
+    def _reinstall(self) -> None:
+        """Swap in a fresh hook. Runs on the hook thread, via rehook().
+
+        Windows drops a low-level keyboard hook across a sleep, and it does so
+        without telling anyone: no message arrives, the thread stays alive, and
+        the hook simply stops firing. The app looks perfectly healthy while no
+        keypress reaches it, so the only fix is to install a new one and throw
+        the old handle away.
+
+        The old hook is released after the new one is in, so a keypress landing
+        during the swap still has somewhere to go.
+        """
+        fresh = user32.SetWindowsHookExW(WH_KEYBOARD_LL, self._proc, None, 0)
+        if not fresh:
+            print(f"[hotkey] could not reinstall the hook "
+                  f"(err {ctypes.get_last_error()}); the old one is still in place")
+            return
+        old, self._hook = self._hook, fresh
+        if old:
+            user32.UnhookWindowsHookEx(old)
+        # A key held at the moment the machine slept never delivered its key-up,
+        # so the recorder would be left waiting for a release that is not coming.
+        self._down = False
+        self.rehooks += 1
+
+    def rehook(self) -> bool:
+        """Ask the hook thread to reinstall. Safe to call from any thread."""
+        if self._thread_id is None or not self._running.is_set():
+            return False
+        return bool(user32.PostThreadMessageW(
+            self._thread_id, WM_REHOOK, 0, 0))
 
     def stop(self) -> None:
         if self._thread_id is not None:

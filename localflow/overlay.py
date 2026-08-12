@@ -17,6 +17,7 @@ from __future__ import annotations
 import colorsys
 import ctypes
 import math
+import time
 import tkinter as tk
 from collections import deque
 from collections.abc import Callable
@@ -93,6 +94,12 @@ SPEECH_OFF = 0.09
 SPEECH_HANG_FRAMES = 12   # keep "speaking" briefly through natural pauses
 
 BORDER_PX = 2
+
+# How often the capsule reasserts that it is topmost and on screen, and the gap
+# in the animation loop that counts as the machine having been asleep. See
+# _hold_position.
+TOPMOST_INTERVAL_S = 2.0
+RESUME_GAP_S = 5.0
 
 # Floor on window opacity. Below roughly this, the capsule is hard to see and
 # hard to find in order to drag it somewhere better.
@@ -247,6 +254,8 @@ class WaveOverlay:
         self._colour = STATE_COLOURS["idle"]
         self._alpha = 0.0
         self._closing = False
+        self._last_tick = time.monotonic()
+        self._next_topmost = 0.0
 
         # Canvas item ids, created once and reconfigured per frame.
         self._bg_items: list[int] = []
@@ -566,6 +575,38 @@ class WaveOverlay:
                 self._speaking = False
         return STATE_COLOURS["speaking" if self._speaking else "quiet"]
 
+    def _hold_position(self) -> None:
+        """Keep the capsule on top and on screen for the life of the process.
+
+        Topmost is set once when the window is built, and that is not enough to
+        survive a night. Waking from sleep, a full screen app, or the lock
+        screen can all leave another window above this one, and the capsule then
+        looks like it vanished when it is really just buried. Unplugging a
+        monitor is worse: the saved position can land outside every screen, and
+        there is no way to drag back something that is not drawn.
+
+        A resume is detected from the clock rather than from a window message.
+        The loop ticks every 25ms, so a gap of seconds means the process was
+        frozen, which needs no message hook to notice.
+        """
+        assert self._root is not None
+        now = time.monotonic()
+        gap = now - self._last_tick
+        self._last_tick = now
+        if gap < RESUME_GAP_S and now < self._next_topmost:
+            return
+        self._next_topmost = now + TOPMOST_INTERVAL_S
+        try:
+            self._place_topmost_without_activating()
+            x, y = self._clamp_to_desktop(
+                self._root.winfo_x(), self._root.winfo_y())
+            if (x, y) != (self._root.winfo_x(), self._root.winfo_y()):
+                self._root.geometry(f"+{x}+{y}")
+        except (tk.TclError, OSError):
+            # Losing a reassertion is not worth killing the animation loop over;
+            # the next tick tries again.
+            pass
+
     # --- animation loop -----------------------------------------------------
 
     def _tick(self) -> None:
@@ -577,6 +618,7 @@ class WaveOverlay:
 
         assert self._root is not None
         self._phase += 0.30
+        self._hold_position()
 
         self._level += (self._read_level() - self._level) * LEVEL_EASE
         self._history.append(self._level)
