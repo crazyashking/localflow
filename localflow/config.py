@@ -68,6 +68,13 @@ DEFAULTS: dict[str, Any] = {
     # Ignore further detections for this long after one fires, so a single
     # phrase cannot trigger twice.
     "wake_debounce_seconds": 3.0,
+    # How far back a wake-started recording reaches, in seconds. The detector
+    # only knows the phrase happened once it has finished, so without this the
+    # first word of a sentence begun immediately is lost. Too large and the
+    # recording contains the wake phrase itself, which Whisper transcribes and
+    # types: that is what "hey flow" appearing at the start of your text means.
+    # Raise it if the first word gets clipped, lower it if the phrase shows up.
+    "wake_preroll_seconds": 0.3,
     # What closes an utterance the wake word started:
     #   "both"    silence closes it, and tapping the hotkey closes it early
     #   "silence" silence only, fully hands free

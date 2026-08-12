@@ -26,10 +26,14 @@ CHANNELS = 1
 BLOCKSIZE = 1024  # ~64ms at 16kHz
 
 # Audio kept on hand while idle, so a recording can start slightly in the past.
-# The wake word detector fires 200-400ms after the phrase ends, and people
-# start their sentence immediately, so without this the first word is already
-# gone by the time recording begins. One second covers the detector's latency
-# with room to spare and costs 64KB.
+# The wake word detector fires a few hundred ms after the phrase ends, and
+# people start their sentence immediately, so without this the first word is
+# already gone by the time recording begins.
+#
+# This is only the size of the buffer. How far back a recording actually
+# reaches is chosen per call, because reaching back the full second puts the
+# wake phrase itself into the recording and Whisper duly types "hey flow" at
+# the start of every sentence. See begin().
 PREROLL_SECONDS = 1.0
 
 # RMS that reads as a full-height meter. Speech sits roughly between 0.02 and
@@ -166,13 +170,42 @@ class Recorder:
             if peak > self._peak:
                 self._peak = peak
 
-    def begin(self, preroll: bool = False) -> None:
+    def _recent(self, seconds: float | None) -> list[np.ndarray]:
+        """The tail of the idle buffer, at most `seconds` long.
+
+        Whole blocks only. Cutting mid-block to hit an exact duration would
+        save at most 64ms and cost a partial frame at the join, and the caller's
+        number is an estimate of detector latency rather than a precise edge.
+        Caller holds the lock.
+        """
+        if seconds is None:
+            return list(self._preroll)
+        wanted = max(0, int(seconds * SAMPLE_RATE))
+        kept: list[np.ndarray] = []
+        total = 0
+        for block in reversed(self._preroll):
+            if total >= wanted:
+                break
+            kept.append(block)
+            total += len(block)
+        kept.reverse()
+        return kept
+
+    def begin(self, preroll: bool = False,
+              preroll_seconds: float | None = None) -> None:
         """Start accumulating audio. Safe to call when already recording.
 
-        With preroll=True the recording opens with the last PREROLL_SECONDS of
-        idle audio already in it. That is for the wake word, which only knows
-        the phrase was spoken after it has finished, by which point the user is
-        usually a word into their sentence.
+        With preroll=True the recording opens with recent idle audio already in
+        it. That is for the wake word, which only knows the phrase was spoken
+        after it has finished, by which point the user is usually a word into
+        their sentence.
+
+        How far back to reach matters more than it looks. The window has to
+        cover the detector's latency, so a word begun the instant the phrase
+        ended is not clipped, and it has to stop short of the phrase itself,
+        because audio containing "hey flow" gets transcribed and typed like any
+        other speech. preroll_seconds is that dividing line; None takes the
+        whole buffer, which is almost always too much.
 
         Push-to-talk passes False on purpose. The key goes down before you
         speak, so there is nothing to recover, and reaching backwards would
@@ -183,7 +216,7 @@ class Recorder:
         with self._lock:
             self._frames.clear()
             if preroll:
-                self._frames.extend(self._preroll)
+                self._frames.extend(self._recent(preroll_seconds))
             self._preroll.clear()
             self._n_samples = sum(len(f) for f in self._frames)
             self._peak = 0.0

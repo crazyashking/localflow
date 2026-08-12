@@ -175,11 +175,13 @@ print("\npre-roll")
 
 app, queued = build()
 app.recorder._stream = object()
-# Half a second of audio while idle, which must survive into the recording.
-idle_blocks = int(0.5 * SAMPLE_RATE / 1024)
+# A full second of idle audio on hand. The recording must take the recent tail
+# of it and leave the rest, because the older end is where the wake phrase was
+# still being spoken.
+idle_blocks = int(1.0 * SAMPLE_RATE / 1024)
 for _ in range(idle_blocks):
     app.recorder._callback(speech(amplitude=0.4), 1024, None, _Status())
-check("idle audio is buffered", len(app.recorder._preroll) == idle_blocks,
+check("idle audio is buffered", len(app.recorder._preroll) > 0,
       f"({len(app.recorder._preroll)} blocks)")
 
 app._on_wake()
@@ -187,9 +189,19 @@ for _ in range(10):
     app.recorder._callback(speech(), 1024, None, _Status())
 app._finish_wake_utterance("")
 clip = queued[0]
-expected = (idle_blocks + 10) * 1024
-check("wake recording opens with the pre-roll already in it",
-      len(clip) == expected, f"({len(clip)} samples, expected {expected})")
+taken = len(clip) - 10 * 1024
+wanted = app.settings.wake_preroll_seconds * SAMPLE_RATE
+check("a wake recording reaches back far enough to cover detector lag",
+      taken >= wanted,
+      f"({taken / SAMPLE_RATE:.2f}s taken, wanted at least "
+      f"{wanted / SAMPLE_RATE:.2f}s)")
+# The bug this exists for: reaching back over the whole buffer swallows the
+# wake phrase, and Whisper then types "hey flow" at the start of every
+# sentence. Whole blocks means it can overshoot by one, and no more.
+check("and not so far that it swallows the wake phrase",
+      taken <= wanted + 1024,
+      f"({taken / SAMPLE_RATE:.2f}s taken of "
+      f"{idle_blocks * 1024 / SAMPLE_RATE:.2f}s available)")
 
 # Push-to-talk must NOT reach backwards: the key goes down before you speak.
 app2, queued2 = build()

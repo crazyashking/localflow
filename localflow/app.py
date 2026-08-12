@@ -212,10 +212,14 @@ class DictationApp:
             # the first.
             self.wake.mute()
 
-        # preroll=True is the point: the detector only knows the phrase was
-        # spoken once it has finished, and people run straight into their
-        # sentence, so the recording has to reach back a second.
-        self.recorder.begin(preroll=True)
+        # The detector only knows the phrase was spoken once it has finished,
+        # and people run straight into their sentence, so the recording reaches
+        # backwards. Only as far as the detector's own lag, though: reach past
+        # that and the wake phrase lands in the clip and gets typed out with
+        # the sentence.
+        self.recorder.begin(
+            preroll=True, preroll_seconds=self.settings.wake_preroll_seconds
+        )
         self._endpointer.reset(time.monotonic())
         self._wake_active.set()
 

@@ -159,6 +159,7 @@ rate against them.
 | `wake_threshold` | Score a phrase must reach, default 0.5. Raise it if the wake word fires on its own. |
 | `wake_patience` | Consecutive frames above the threshold before it counts, default 2. This is what keeps single-frame spikes from firing. |
 | `wake_debounce_seconds` | Hold-off after a detection, default 3.0. |
+| `wake_preroll_seconds` | How far a voice-started recording reaches back, default 0.3. Raise it if your first word gets clipped. Lower it if the wake phrase itself shows up in your text. |
 | `wake_end_mode` | `both`, `silence`, or `hotkey`. How a spoken utterance ends. |
 | `wake_endpoint_silence` | Seconds of quiet that end an utterance in `silence` or `both`, default 2.0. |
 
@@ -313,10 +314,18 @@ trainer's single-frame count.
 
 | phrase | threshold | detected | false accepts/hour |
 |---|---|---|---|
-| `hey flow` | 0.5 | 77.1% | 0.47 |
-| `hey flow` | 0.8 | 69.5% | 0.09 |
+| `hey flow` | 0.5 | 76.8% | 0.47 |
+| `hey flow` | 0.6 | 75.2% | 0.37 |
+| `hey flow` | 0.7 | 73.6% | 0.28 |
+| `hey flow` | 0.8 | 69.7% | 0.09 |
 | `hey localflow` | 0.5 | 81.3% | 0.09 |
 | `hey localflow` | 0.6 | 80.3% | 0.00 |
+
+The curve is shallow, which is the useful part: dropping `hey flow` from 0.8 to
+0.6 buys 5.5 points of detection and costs a false start every 2.7 hours
+instead of every 11. Going below 0.5 buys almost nothing and costs a lot.
+Lowering `wake_patience` to 1 is a worse trade at every threshold, roughly
+doubling false accepts to save 80ms.
 
 Two syllables was the problem. "hey flow" sits close to "hello", "hey Joe" and
 "cash flow", and no threshold fixes that: at a matched false-accept rate of
