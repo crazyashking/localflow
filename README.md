@@ -318,8 +318,8 @@ trainer's single-frame count.
 | `hey flow` | 0.6 | 75.2% | 0.37 |
 | `hey flow` | 0.7 | 73.6% | 0.28 |
 | `hey flow` | 0.8 | 69.7% | 0.09 |
-| `hey localflow` | 0.5 | 81.3% | 0.09 |
-| `hey localflow` | 0.6 | 80.3% | 0.00 |
+| `hey localflow` | 0.5 | 81.4% | 0.09 |
+| `hey localflow` | 0.6 | 80.2% | 0.00 |
 
 The curve is shallow, which is the useful part: dropping `hey flow` from 0.8 to
 0.6 buys 5.5 points of detection and costs a false start every 2.7 hours
@@ -329,7 +329,7 @@ doubling false accepts to save 80ms.
 
 Two syllables was the problem. "hey flow" sits close to "hello", "hey Joe" and
 "cash flow", and no threshold fixes that: at a matched false-accept rate of
-0.09/hour it detects 69.5% where "hey localflow" detects 81.3%. Four syllables
+0.09/hour it detects 69.7% where "hey localflow" detects 81.4%. Four syllables
 is simply further from ordinary English. Both models were trained on 30,000
 synthetic positives and 30,000 adversarial negatives under identical settings,
 so the phrase is the only thing that differs.

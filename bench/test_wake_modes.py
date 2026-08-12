@@ -181,8 +181,9 @@ app.recorder._stream = object()
 idle_blocks = int(1.0 * SAMPLE_RATE / 1024)
 for _ in range(idle_blocks):
     app.recorder._callback(speech(amplitude=0.4), 1024, None, _Status())
-check("idle audio is buffered", len(app.recorder._preroll) > 0,
-      f"({len(app.recorder._preroll)} blocks)")
+check("idle audio fills the buffer to its capacity",
+      len(app.recorder._preroll) == app.recorder._preroll.maxlen,
+      f"({len(app.recorder._preroll)} of {app.recorder._preroll.maxlen} blocks)")
 
 app._on_wake()
 for _ in range(10):
