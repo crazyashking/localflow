@@ -40,7 +40,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .config import PROJECT_ROOT
+from .config import DEFAULTS, PROJECT_ROOT
 
 # Release the pinned assets come from. openWakeWord's own downloader tracks
 # whatever this tag currently points at; we name it explicitly so a re-tagged
@@ -109,7 +109,11 @@ REGISTRY: dict[str, WakeSpec] = {
     ),
 }
 
-DEFAULT_PHRASE = "hey_jarvis"
+# Taken from the settings defaults rather than repeated here, so the two cannot
+# drift apart. They did once: this said "hey_jarvis" after config.py had already
+# moved to the phrase that ships with the repo.
+DEFAULT_PHRASE = DEFAULTS["wake_phrase"]
+DEFAULT_THRESHOLD = DEFAULTS["wake_threshold"]
 
 # openWakeWord works in 80ms frames. Feeding it exact multiples keeps the
 # internal accumulator empty and avoids adding up to 80ms of detection delay.
@@ -258,7 +262,7 @@ class WakeListener:
         self,
         on_wake: Callable[[], None],
         phrase: str = DEFAULT_PHRASE,
-        threshold: float = 0.5,
+        threshold: float = DEFAULT_THRESHOLD,
         patience: int = 2,
         debounce_seconds: float = 3.0,
     ):
