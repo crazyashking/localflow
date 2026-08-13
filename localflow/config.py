@@ -37,7 +37,17 @@ DEFAULTS: dict[str, Any] = {
     # top. This changes the display only; it has no effect on transcription.
     "mic_level_ceiling": 0.14,
     # --- model ---
-    "model": "large-v3-turbo",
+    # Where Whisper runs. "auto" takes the GPU when one is usable and falls back
+    # to the CPU when it is not. "cuda" refuses to start rather than fall back,
+    # which is what you want if a silent drop to CPU speed would go unnoticed.
+    # "cpu" forces the CPU even on a machine with a GPU.
+    "device": "auto",
+    # "auto" picks the checkpoint that suits the device: large-v3-turbo on the
+    # GPU, small (or small.en for English) on the CPU, because large-v3-turbo on
+    # a CPU decodes at around real time and is not worth waiting for. Override
+    # with any key from models.REGISTRY: large-v3-turbo, small, small.en, base,
+    # base.en. base is the one to try if small is still too slow.
+    "model": "auto",
     "language": "en",
     "beam_size": 5,
     # --- output ---
@@ -55,11 +65,20 @@ DEFAULTS: dict[str, Any] = {
     "wake_word": False,
     # Either a phrase openWakeWord ships a pretrained model for (hey_jarvis,
     # alexa, hey_mycroft) or the filename of a model in models/wake/custom,
-    # which is where a run of training/ puts one.
-    "wake_phrase": "hey_jarvis",
+    # which is where a run of training/ puts one. hey_flow is trained by this
+    # project and ships in the repo, so it needs no download and works from a
+    # fresh clone; training/ is the recipe if you want your own phrase.
+    "wake_phrase": "hey_flow",
     # Score a frame must reach to count. Raise it if the wake word fires on
     # its own, lower it if it ignores you.
-    "wake_threshold": 0.5,
+    #
+    # 0.8 is where "hey flow" was measured live: it scored 0.940 to 0.970 on
+    # every attempt through one voice and one microphone, and 0.8 caught all of
+    # them while holding false accepts to 0.09/hour on 10.7 hours of validation
+    # audio. 0.5 lets through a false start every two hours, which is what makes
+    # a wake word feel broken. The full curve is in the README, and lowering
+    # this is the first thing to try if it ignores you.
+    "wake_threshold": 0.8,
     # Consecutive 80ms frames that must clear the threshold. This is the lever
     # that actually reduces false accepts: one noisy frame cannot start a
     # recording, a real phrase clears several in a row. Costs a little

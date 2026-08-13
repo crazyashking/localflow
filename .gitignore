@@ -2,7 +2,21 @@
 __pycache__/
 *.pyc
 settings.json
-models/
+# Downloaded model weights, with one exception: the wake word this project
+# trained. It is 215 KB, it has no upstream to download it from, and without it
+# a fresh clone cannot use the phrase the default settings point at. The
+# openWakeWord assets alongside it stay ignored, because those are downloaded
+# and checked against a pinned digest at startup.
+#
+# Every level has to be re-included by hand. Git will not look inside an
+# excluded directory, so a bare "!models/wake/custom/hey_flow.onnx" under
+# "models/" never matches anything.
+models/*
+!models/wake/
+models/wake/*
+!models/wake/custom/
+models/wake/custom/*
+!models/wake/custom/hey_flow.onnx
 .ruff_cache/
 
 # Editor and agent local state. Named here rather than left to a machine's

@@ -4,3 +4,6 @@
 *.toml text
 *.txt text
 *.wav binary
+# Without this, `* text=auto` above is one bad heuristic away from rewriting
+# line endings inside a model file and corrupting it on checkout.
+*.onnx binary

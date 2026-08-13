@@ -40,7 +40,22 @@ def main() -> int:
     print("-" * 62)
     print(f"  hotkey    hold {hotkey.key_name(settings.hotkey_vk)}"
           f"{' (suppressed)' if settings.hotkey_suppress else ''}")
-    print(f"  model     {settings.model} ({settings.language})")
+
+    # Built before the rest of the banner, because it is what resolves "auto"
+    # for the device and the model. Nothing here is loaded or downloaded yet;
+    # warm_up() below does that.
+    try:
+        app = DictationApp(settings, on_status=_print_status)
+    except Exception as exc:
+        print(f"\nstartup failed: {exc}")
+        return 1
+
+    device = app.transcriber.device
+    print(f"  model     {app.transcriber.spec.label}, {settings.language}")
+    print(f"  device    {device.summary()}   {device.reason}")
+    if not device.is_gpu:
+        print("            CPU decoding is far slower than a GPU. If dictation")
+        print("            lags, set \"model\": \"base.en\" in settings.json.")
     if settings.wake_word:
         from . import wake
         # phrase_label rather than a REGISTRY lookup: REGISTRY holds only the
@@ -75,7 +90,6 @@ def main() -> int:
         print(f"  edge glow {sizes}   dpi {awareness}")
     print("-" * 62)
 
-    app = DictationApp(settings, on_status=_print_status)
     try:
         app.warm_up()
     except Exception as exc:

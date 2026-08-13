@@ -1,8 +1,11 @@
 """Whisper transcription via faster-whisper / CTranslate2.
 
-The model is loaded once and kept warm in VRAM for the life of the process.
-That is what removes the 8-10 second cold start that cloud dictation tools pay
-on every launch.
+The model is loaded once and stays resident for the life of the process. That is
+what removes the 8-10 second cold start that cloud dictation tools pay on every
+launch, and it applies equally to the GPU and the CPU path.
+
+Which device is used, and which checkpoint goes with it, is decided in
+models.py. Nothing here assumes a GPU.
 """
 
 from __future__ import annotations
@@ -14,7 +17,9 @@ import numpy as np
 
 from . import cuda
 
-cuda.init()  # must precede the ctranslate2 import chain; see cuda.py
+# Must precede the ctranslate2 import chain; see cuda.py. Does nothing and
+# reports nothing on a machine with no CUDA libraries, which is the CPU install.
+cuda.init()
 
 from faster_whisper import WhisperModel  # noqa: E402
 
@@ -58,28 +63,36 @@ class Transcription:
 
 
 class Transcriber:
-    def __init__(self, model_key: str = models.DEFAULT_MODEL, language: str = "en"):
+    def __init__(
+        self,
+        model_key: str = models.DEFAULT_MODEL,
+        language: str = "en",
+        device: str = models.AUTO,
+    ):
         self.language = language
-        self._model_key = model_key
+        # Resolved eagerly so the startup banner can name the device and the
+        # checkpoint before the download and load begin, which on a CPU install
+        # is the slowest part of startup by a wide margin.
+        self.device = models.resolve_device(device)
+        self.spec = models.get(model_key, device=self.device, language=language)
         self._model: WhisperModel | None = None
 
     # --- model management ----------------------------------------------
 
     def load(self) -> None:
-        """Load the model into VRAM, where it stays for the life of the process."""
+        """Load the model, where it stays resident for the life of the process."""
         if self._model is not None:
             return
-        spec = models.get(self._model_key)
         self._model = WhisperModel(
-            spec.repo,
-            revision=spec.revision,
-            device=models.DEVICE,
-            compute_type=models.COMPUTE_TYPE,
+            self.spec.repo,
+            revision=self.spec.revision,
+            device=self.device.name,
+            compute_type=self.device.compute_type,
         )
         self._burn_in()
 
     def _burn_in(self) -> None:
-        """Force the first GPU encode at startup rather than mid-dictation.
+        """Force the first encode at startup rather than mid-dictation.
 
         Two jobs. It pays the one-off cost of CUDA kernel compilation so the
         user's first utterance is as fast as every later one, and it surfaces a
@@ -104,10 +117,20 @@ class Transcriber:
                 pass
         except Exception as exc:
             self._model = None
+            if self.device.is_gpu:
+                raise RuntimeError(
+                    f"The model loaded but the first GPU encode failed: {exc}\n"
+                    "This is almost always a CUDA library that is present at import "
+                    "time but not on the loader path at compute time.\n"
+                    "Run the environment gate for a layer-by-layer diagnosis:\n"
+                    "  .venv\\Scripts\\python.exe gate_check.py\n"
+                    "Or set \"device\": \"cpu\" in settings.json to skip the GPU."
+                ) from exc
             raise RuntimeError(
-                f"The model loaded but the first GPU encode failed: {exc}\n"
-                "This is almost always a CUDA library that is present at import "
-                "time but not on the loader path at compute time.\n"
+                f"The model loaded but the first CPU encode failed: {exc}\n"
+                f"compute_type was {self.device.compute_type!r}. If this build of "
+                "CTranslate2 does not support it, set \"device\": \"cpu\" and try a "
+                "smaller model such as \"base.en\".\n"
                 "Run the environment gate for a layer-by-layer diagnosis:\n"
                 "  .venv\\Scripts\\python.exe gate_check.py"
             ) from exc

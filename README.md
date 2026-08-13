@@ -11,8 +11,11 @@ vocabulary.
 ## What it does
 
 - **Push-to-talk.** Hold a key, speak, release. Working out of the box.
-- **Wake word.** Say a phrase to start dictation with no key at all, and stop
-  talking to end it. Off by default, one setting to turn on.
+- **Wake word.** Say "hey flow" to start dictation with no key at all, and stop
+  talking to end it. The model ships with the repo. Off by default, one setting
+  to turn on.
+- **Runs without a GPU.** An NVIDIA card is the fast path. Without one, the app
+  falls back to the CPU and a smaller model on its own.
 - **Two status displays.** A small draggable capsule showing a live level meter,
   and light around the edge of the screen while an utterance is in flight.
   Either can be turned off without affecting the other.
@@ -39,16 +42,19 @@ a system tray menu.
 | | minimum | why |
 |---|---|---|
 | OS | Windows 10 or 11, 64-bit | The hotkey is a `WH_KEYBOARD_LL` hook, text injection uses `SendInput`, and both overlays are layered non-activating windows. There is no macOS or Linux path. |
-| GPU | NVIDIA with 4 GB VRAM | Whisper runs on CUDA with no CPU fallback. Measured footprint is 2.2 GB, so a 4 GB card leaves room for your desktop. |
-| Driver | 527 or newer | Anything that supports CUDA 12, which the pinned cuBLAS and cuDNN wheels need. |
+| GPU | NVIDIA with 4 GB VRAM, or none | The fast path. Measured footprint is 2.2 GB, so a 4 GB card leaves room for your desktop. Without one the app falls back to the CPU, which works and is much slower. |
+| Driver | 527 or newer, on the GPU path | Anything that supports CUDA 12, which the pinned cuBLAS and cuDNN wheels need. |
 | Python | 3.14, 64-bit | See below. This one is strict. |
-| Disk | 4.5 GB | 2.5 GB of packages, 1.6 GB for the speech model, and a few MB of wake word models. |
+| Disk | 4.5 GB on the GPU path, 1 GB on the CPU path | Packages plus the speech model. The CPU install skips 2 GB of CUDA libraries and uses a smaller model. |
 | RAM | 8 GB | The app holds about 700 MB once the model is warm. |
 | Mic | any | Whatever Windows already uses, or name a specific one in settings. |
 
-**An NVIDIA GPU is not optional.** `models.py` fixes the device to CUDA and the
-precision to FP16, and there is no setting to change it. On an AMD or Intel
-machine the app will not start. Check this before downloading 1.6 GB of weights.
+**The GPU is optional, and it is what makes this feel instant.** With an NVIDIA
+card, `device` resolves to CUDA and a 6-second sentence decodes in a quarter of a
+second. Without one, it resolves to the CPU and the same sentence takes about two
+seconds on a fast desktop chip. Both are usable for dictation. Only one of them
+disappears while you are still thinking about the next sentence. The numbers for
+each are in [What to expect](#what-to-expect).
 
 **Python 3.14 specifically.** The code itself targets 3.11 and newer, but
 `requirements.txt` is pinned to CPython 3.14 on Windows x64 with one SHA256 per
@@ -56,14 +62,11 @@ package. pip picks a wheel tagged for the running interpreter, so a hash-pinned
 install on a different minor version fails on anything with a C extension. Use
 3.14, or re-resolve the pins for your own version.
 
-4 GB is the floor and 6 GB or more is comfortable, since the figure above is
-LocalFlow alone and your desktop and browser want VRAM too. Decode speed scales
-with the GPU, and the bar for dictation is low: anything that decodes faster
-than you speak feels instant, and the measurements below clear that bar by
-roughly twenty times.
+On the GPU path, 4 GB is the floor and 6 GB or more is comfortable, since the
+figure above is LocalFlow alone and your desktop and browser want VRAM too.
 
-The wake word detector runs on the CPU and never touches the GPU, so leaving it
-on all day costs no VRAM.
+The wake word detector always runs on the CPU and never touches the GPU, so
+leaving it on all day costs no VRAM on either path.
 
 ## Install
 
@@ -71,16 +74,35 @@ on all day costs no VRAM.
 git clone https://github.com/crazyashking/localflow
 cd localflow
 py -3.14 -m venv .venv
+```
+
+Then install for the hardware you have. **With an NVIDIA GPU:**
+
+```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt --require-hashes --only-binary=:all:
 ```
 
-Then confirm the GPU stack before trusting anything downstream:
+**Without one:**
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-cpu.txt --require-hashes --only-binary=:all:
+```
+
+`requirements-cpu.txt` is the same 39 pins to the same hashes, minus the three
+`nvidia-*` wheels, which are about 2 GB of CUDA libraries a machine with no
+NVIDIA card will never load. CTranslate2 ships one wheel that does both devices,
+so nothing else changes. Installing the GPU file on a CPU-only machine also
+works; it just costs the 2 GB.
+
+Either way, confirm the stack before trusting anything downstream:
 
 ```powershell
 .\.venv\Scripts\python.exe gate_check.py
 ```
 
-That downloads the pinned model on first run, roughly 1.6 GB.
+It reports which device your settings resolve to and runs a real decode on it.
+That downloads the pinned model on first run: roughly 1.6 GB on the GPU path,
+460 MB on the CPU path.
 
 ## Running it
 
@@ -95,12 +117,12 @@ and release. The text is typed at your cursor and appended to
 Close the console window to quit.
 
 Push-to-talk is all you get on a first run. To start by voice instead, set
-`"wake_word": true` in `settings.json` and pick a phrase. Three are ready to use
-without training anything, so the shortest path is:
+`"wake_word": true` in `settings.json`. That is the only edit needed: the phrase
+defaults to **"hey flow"**, whose model is trained by this project and ships in
+the repo, so there is nothing to download and nothing to train.
 
 ```json
 "wake_word": true,
-"wake_phrase": "hey_jarvis",
 ```
 
 The [Wake word](#wake-word) section covers choosing a phrase and setting a
@@ -108,10 +130,10 @@ threshold that does not fire while you are on a call.
 
 ## What to expect
 
-Numbers from the development machine, an RTX 5060 Ti and an i7-14700K, running
-Whisper large-v3-turbo in FP16. Yours will differ with your GPU, and the shape
-is what matters: decoding finishes far faster than you can talk, so the wait
-after you stop speaking is a fraction of a second.
+Numbers from the development machine, an RTX 5060 Ti and an i7-14700K. Yours
+will differ, and the shape is what matters: on the GPU, decoding finishes far
+faster than you can talk, so the wait after you stop speaking is a fraction of a
+second.
 
 | | |
 |---|---|
@@ -125,6 +147,26 @@ Reproduce the accuracy and speed figures yourself with
 `bench\test_pipeline.py`, which decodes known sentences and reports the error
 rate against them.
 
+### On the CPU
+
+Same machine with the GPU taken out of the picture, decoding on the i7-14700K
+alone. Read these as an optimistic case: that is a 20-core desktop chip, and a
+laptop will be slower.
+
+| model | short sentence | 190s of continuous speech |
+|---|---|---|
+| `small.en`, the CPU default | 3.4x real time, so a 6s sentence takes 1.8s | 1.1x real time |
+| `base.en` | 9.7x real time, so a 6s sentence takes 0.6s | not measured |
+
+Two things worth knowing before deciding the CPU path is fine. Decode speed
+falls off with the length of the utterance, so a dictated paragraph costs far
+more than the short-sentence figure suggests. And `small.en` produced text
+identical to the GPU's on the bundled samples, so the accuracy loss on the CPU
+path comes from choosing a smaller model, not from the CPU itself.
+
+If the wait after you stop speaking is too long, set `"model": "base.en"`. It is
+roughly three times faster and noticeably less accurate on unusual words.
+
 ## Settings
 
 `settings.json` is created on first run. Notable keys:
@@ -134,7 +176,8 @@ rate against them.
 | `hotkey_vk` | Virtual-key code to hold. `163` = Right Ctrl, `165` = Right Alt, `145` = Scroll Lock. |
 | `hotkey_suppress` | If true the key is swallowed, so the focused app never sees it. Set false if you still use Right Ctrl for shortcuts. |
 | `input_device` | `null` for the Windows default, or a name substring such as `"Brio"`. |
-| `model` | Whisper model, default `large-v3-turbo`, which fits the 4 GB minimum above. `medium`, `small` and `base` decode faster and less accurately, and are worth trying only if the default does not fit or is not fast enough. |
+| `device` | `auto` (default) takes the GPU when one is usable and the CPU when it is not. `cuda` refuses to start rather than fall back, which is what you want if a silent drop to CPU speed would go unnoticed. `cpu` forces the CPU even on a machine with a GPU. |
+| `model` | Whisper model. `auto` (default) picks `large-v3-turbo` on the GPU and `small.en` on the CPU, since large-v3-turbo on a CPU decodes at about real time. Override with `large-v3-turbo`, `small`, `small.en`, `base` or `base.en`. The `.en` builds are English-only and are both faster and more accurate on English. |
 | `language` | Language code, default `en`. `null` lets Whisper detect it, which costs a little speed. |
 | `inject_method` | `auto`, `paste`, or `type`. See below. |
 | `save_transcripts` | Whether every utterance is also appended to a file on disk, default `true`. Set `false` to keep nothing. |
@@ -155,8 +198,8 @@ rate against them.
 | `glow_sweep_seconds` | How long the entrance takes, default 0.7. `0` restores a plain fade in. |
 | `glow_linger_seconds` | How long it holds dim after your text lands, showing it is listening again. Default 2.0, `0` to leave immediately. |
 | `wake_word` | Start dictation by speaking a phrase. `false` by default. See below. |
-| `wake_phrase` | `hey_jarvis`, `alexa`, `hey_mycroft`, or the name of a model in `models/wake/custom`. |
-| `wake_threshold` | Score a phrase must reach, default 0.5. Raise it if the wake word fires on its own. |
+| `wake_phrase` | `hey_flow` (default, ships with the repo), `hey_jarvis`, `alexa`, `hey_mycroft`, or the name of any other model in `models/wake/custom`. |
+| `wake_threshold` | Score a phrase must reach, default 0.8, which is where "hey flow" was measured live. Raise it if the wake word fires on its own, lower it if it ignores you. The curve is tabulated below. |
 | `wake_patience` | Consecutive frames above the threshold before it counts, default 2. This is what keeps single-frame spikes from firing. |
 | `wake_debounce_seconds` | Hold-off after a detection, default 3.0. |
 | `wake_preroll_seconds` | How far a voice-started recording reaches back, default 0.3. Raise it if your first word gets clipped. Lower it if the wake phrase itself shows up in your text. |
@@ -300,9 +343,11 @@ claim this project is built on, so to be explicit: the audio is scored locally
 by a model on your disk, the rolling buffer is a second long and is overwritten
 in place, and there is no network code in the detector at all.
 
-Three pretrained phrases ship without training anything: `hey_jarvis`,
-`alexa`, `hey_mycroft`. They are downloaded on first use and checked against a
-pinned SHA256.
+The default phrase is **"hey flow"**, trained by this project and committed at
+`models/wake/custom/hey_flow.onnx`, so it works from a fresh clone with nothing
+to download. Three of openWakeWord's own phrases also work without training
+anything: `hey_jarvis`, `alexa`, `hey_mycroft`. Those are downloaded on first use
+and checked against a pinned SHA256.
 
 ### The false-accept problem, measured
 
@@ -334,11 +379,14 @@ is simply further from ordinary English. Both models were trained on 30,000
 synthetic positives and 30,000 adversarial negatives under identical settings,
 so the phrase is the only thing that differs.
 
-Reproduce either number with:
+Reproduce the shipped phrase's row with:
 
 ```powershell
-.\.venv\Scripts\python.exe bench\eval_wake.py hey_localflow
+.\.venv\Scripts\python.exe bench\eval_wake.py hey_flow
 ```
+
+The `hey_localflow` rows need that model trained first, since it is not
+committed.
 
 The detection figures come from held-out synthetic clips spanning many voices
 and speeds, which is harsher than one person saying the phrase into their own
@@ -348,20 +396,25 @@ scored between 0.940 and 0.970 on every attempt, so a threshold of 0.8 caught
 all of them. That is far above the synthetic figure, which is the point of
 measuring your own room.
 
-**Neither of these two models is in the repo.** `models/` is gitignored,
-because a trained detector is a build output rather than source. Clone this and
-you get the three pretrained phrases, which download on first use and are
-enough to try the feature:
+**"hey flow" is in the repo.** `models/` is gitignored as a rule, because
+downloaded weights are not source, and `hey_flow.onnx` is the one exception:
+215 KB, no upstream to fetch it from, and the phrase the default settings point
+at. So one edit turns the feature on:
 
 ```json
 "wake_word": true,
-"wake_phrase": "hey_jarvis",
 ```
 
-For "hey flow" or a phrase of your own, run the training in `training/` and
-drop the resulting `.onnx` into `models/wake/custom/`. The two config files that
-produced the table above are committed at `training/configs/`, so the runs are
-reproducible.
+`hey_localflow` is not committed. It won the measurement above and lost the
+decision: two syllables is easier to say a hundred times a day than four, the
+gap closes at a threshold you can actually pick, and shipping one phrase means
+one default that is known to work. Its config is still at
+`training/configs/hey_localflow.yml`, so anyone who prefers the false-accept
+number can train it themselves.
+
+For a phrase of your own, run the training in `training/` and drop the resulting
+`.onnx` into `models/wake/custom/`. Both config files that produced the table
+above are committed, so the runs are reproducible.
 
 One number from that table is worth carrying into your own tuning whatever
 phrase you pick: a hold-off of `wake_debounce_seconds` follows every detection,
@@ -563,7 +616,7 @@ window is focused, so click into a text field first, then hold the hotkey.
 ## Verification
 
 ```powershell
-.\.venv\Scripts\python.exe gate_check.py            # CUDA, model load, decode
+.\.venv\Scripts\python.exe gate_check.py            # device, model load, decode
 .\.venv\Scripts\python.exe bench\test_pipeline.py   # WER + speed vs known text
 .\.venv\Scripts\python.exe bench\test_clipboard.py  # clipboard is never damaged
 .\.venv\Scripts\python.exe bench\test_hotkey.py     # hook fires on synthetic keys
@@ -589,7 +642,7 @@ is that this app fails silently, so a test that only proves code ran is worse
 than no test:
 
 - The gate transcribes **real speech** rather than silence. An earlier version
-  fed it silence, VAD stripped every frame, the GPU encode path never ran, and
+  fed it silence, VAD stripped every frame, the encode path never ran, and
   the gate reported PASS while cuBLAS had never loaded at all.
 - The WER scorer canonicalises number words, because Whisper writes "400" where
   the reference says "four hundred". Scoring that as an error would make the
@@ -616,8 +669,9 @@ scripts have to extend `sys.path` before importing `localflow`.
 
 ## Dependencies and supply-chain handling
 
-`requirements.txt` pins all 42 packages to an exact version and SHA256. Install
-only with:
+`requirements.txt` pins all 42 packages to an exact version and SHA256, and
+`requirements-cpu.txt` pins 39 of the same packages to the same hashes, leaving
+out only the three `nvidia-*` wheels. Install only with:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt --require-hashes --only-binary=:all:
@@ -642,7 +696,9 @@ only with:
 localflow/
   __main__.py  console entry point (python -m localflow)
   app.py       wiring and threading
-  cuda.py      registers NVIDIA DLL dirs; must import before ctranslate2
+  cuda.py      registers NVIDIA DLL dirs; must import before ctranslate2.
+               Reports rather than raises when there are none, which is how
+               the CPU fallback is detected
   hotkey.py    WH_KEYBOARD_LL global hook (ctypes, no admin needed)
   audio.py     16kHz mono float32 mic capture into a ring buffer
   asr.py       warm-resident Whisper model, anti-hallucination settings
@@ -652,7 +708,7 @@ localflow/
   wake.py      openWakeWord detector, model resolution and digest pinning
   endpoint.py  decides when a spoken utterance has ended
   history.py   dated markdown transcripts
-  models.py    model registry, pinned by commit
+  models.py    model registry pinned by commit, and the device decision
   config.py    settings.json
 ```
 

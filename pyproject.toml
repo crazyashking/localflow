@@ -17,6 +17,8 @@ authors = [{ name = "Ashrit Chattani", email = "60252193+crazyashking@users.nore
 keywords = ["dictation", "speech-to-text", "whisper", "offline", "local", "windows"]
 classifiers = [
     "Development Status :: 3 - Alpha",
+    # Both, since the GPU is the fast path and not a requirement.
+    "Environment :: Console",
     "Environment :: GPU :: NVIDIA CUDA",
     "Intended Audience :: End Users/Desktop",
     "License :: OSI Approved :: MIT License",

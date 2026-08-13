@@ -1,9 +1,14 @@
 # Training a wake word
 
-The app ships with openWakeWord's pretrained phrases (`hey_jarvis`, `alexa`,
-`hey_mycroft`). This directory is how a phrase that nobody has trained yet gets
-made, and it is entirely separate from running LocalFlow: nothing here is
-imported by the app, and none of it is needed to use dictation.
+The app ships with "hey flow", trained here and committed at
+`models/wake/custom/hey_flow.onnx`, plus openWakeWord's pretrained phrases
+(`hey_jarvis`, `alexa`, `hey_mycroft`). This directory is how a phrase that
+nobody has trained yet gets made, and it is entirely separate from running
+LocalFlow: nothing here is imported by the app, and none of it is needed to use
+dictation.
+
+Everything below is the exact recipe that produced the shipped model. Running it
+again with `configs/hey_flow.yml` reproduces it.
 
 ## Why this has its own virtualenv
 
@@ -77,12 +82,15 @@ Drop the exported `.onnx` into `models/wake/custom/` and point `wake_phrase` at
 its name in `settings.json`:
 
 ```json
-{ "wake_word": true, "wake_phrase": "hey_flow" }
+{ "wake_word": true, "wake_phrase": "my_phrase" }
 ```
 
 `localflow/wake.py` resolves an unknown phrase against that directory. A model
 trained here carries no pinned digest, unlike the downloaded ones, because
 there is no upstream release for it to be checked against.
+
+`.gitignore` excludes `models/` with a single exception for `hey_flow.onnx`, so
+a phrase you train stays local unless you un-ignore it yourself.
 
 ## Measuring it, which is the part that matters
 
@@ -98,15 +106,23 @@ Leave it running through a normal working hour without ever saying the phrase.
 Anything it reports is a false accept. Only a number from that run belongs in
 the main README.
 
-## The two phrases here
+## The two phrases here, and which one shipped
 
-`hey_flow.yml` is the phrase we want. `hey_localflow.yml` is the control.
+`hey_flow.yml` is the phrase that shipped. `hey_localflow.yml` was the control.
 
 "hey flow" is two syllables and "flow" is a common word with a very common
 vowel shape, so it sits near "hello", "hey Joe" and "cash flow". "hey
 localflow" is four syllables and much further from ordinary English. Rather
-than settle that by argument, both are trained on identical settings and
-measured on identical audio, and the loser is deleted.
+than settle that by argument, both were trained on identical settings and
+measured on identical audio.
+
+"hey localflow" won on the numbers, detecting 81.4% at 0.09 false accepts per
+hour where "hey flow" detected 69.7% at the same rate. The full table is in the
+main README. "hey flow" shipped anyway: two syllables is easier to say a hundred
+times a day, the gap closes at a threshold you can actually pick, and one
+default that is known to work beats two that need choosing between. Only
+`hey_flow.onnx` is committed. Both configs are kept, so training the other one
+is a single command.
 
 The confusables for each phrase are listed in `custom_negative_phrases` in its
 config. That list is the direct fix for the problem above: every entry is

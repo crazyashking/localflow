@@ -20,6 +20,11 @@ Two mechanisms are needed, and both are required:
 
 Mutating os.environ changes only this process's environment block. Nothing is
 written to the registry and the system PATH is untouched.
+
+None of this is fatal on its own. A machine with no NVIDIA libraries installed
+is a supported CPU install, so init() records why the GPU is unavailable and
+returns. models.py reads that to pick the device. require() is the variant for
+callers that genuinely cannot continue without a GPU.
 """
 
 from __future__ import annotations
@@ -33,6 +38,9 @@ from pathlib import Path
 _handles: list = []
 _registered: list[Path] = []
 _initialised = False
+# Why the GPU libraries cannot be used, or None when they are fine. Set once by
+# init() and read by problem() and require().
+_problem: str | None = None
 
 
 def _discover_bin_dirs() -> list[Path]:
@@ -54,35 +62,48 @@ def _discover_bin_dirs() -> list[Path]:
 
 
 def init() -> list[Path]:
-    """Register NVIDIA DLL directories. Idempotent.
+    """Register NVIDIA DLL directories. Idempotent, and never raises.
 
-    Returns the list of directories registered. Raises RuntimeError with an
-    actionable message if the required libraries are missing.
+    Returns the directories registered, which is an empty list when the GPU
+    libraries are absent or incomplete. In that case problem() explains why, and
+    the caller decides whether that is fatal. An empty list is the normal state
+    of a CPU install, not an error.
     """
-    global _initialised
+    global _initialised, _problem
     if _initialised:
         return list(_registered)
 
     if sys.platform != "win32":
+        # The loader dance is a Windows problem. Everywhere else CTranslate2
+        # finds its CUDA libraries through the ordinary search path, so there is
+        # nothing to register here and nothing to report.
         _initialised = True
         return []
 
     bin_dirs = _discover_bin_dirs()
     if not bin_dirs:
-        raise RuntimeError(
+        _problem = (
             "No NVIDIA DLL directories found in site-packages.\n"
-            "Install them into this project's venv with:\n"
+            "That is expected on a CPU install. To run on the GPU instead:\n"
             "  pip install -r requirements.txt --require-hashes --only-binary=:all:"
         )
+        _initialised = True
+        return []
 
     found = {d.parent.name for d in bin_dirs}
     missing = [name for name in ("cublas", "cudnn") if name not in found]
     if missing:
-        raise RuntimeError(
+        # A half-installed GPU stack is worse than none at all, because
+        # CTranslate2 still reports the device and only fails on the first real
+        # encode. Refusing the GPU here sends it down the CPU path instead,
+        # which works.
+        _problem = (
             f"Missing required NVIDIA libraries: {', '.join(missing)}.\n"
             f"Found only: {', '.join(sorted(found)) or 'nothing'}\n"
             "CTranslate2 needs both cuBLAS and cuDNN 9 to run on the GPU."
         )
+        _initialised = True
+        return []
 
     for bin_dir in bin_dirs:
         _handles.append(os.add_dll_directory(str(bin_dir)))
@@ -102,9 +123,32 @@ def init() -> list[Path]:
     return bin_dirs
 
 
+def problem() -> str | None:
+    """Why the GPU libraries are unusable, or None when they are fine."""
+    init()
+    return _problem
+
+
+def require() -> list[Path]:
+    """init(), but fatal when the GPU libraries are missing or incomplete.
+
+    For callers that have already committed to the GPU, where falling back
+    silently would hide the reason the GPU was not used.
+    """
+    dirs = init()
+    if _problem:
+        raise RuntimeError(_problem)
+    return dirs
+
+
 def describe() -> str:
     """Human-readable summary, for the environment gate."""
     dirs = init()
+    if _problem:
+        indented = _problem.replace("\n", "\n  ")
+        return f"no usable NVIDIA libraries:\n  {indented}"
+    if not dirs:
+        return "not applicable on this platform (Windows loader workaround only)"
     lines = [f"registered {len(dirs)} NVIDIA DLL director{'y' if len(dirs) == 1 else 'ies'}:"]
     for d in dirs:
         n_dll = len(list(d.glob("*.dll")))

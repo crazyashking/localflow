@@ -63,6 +63,7 @@ class DictationApp:
         self.transcriber = asr.Transcriber(
             model_key=settings.model,
             language=settings.language,
+            device=settings.device,
         )
         self.log = TranscriptLog(settings.transcript_dir, enabled=settings.save_transcripts)
 
@@ -127,7 +128,8 @@ class DictationApp:
         self._status("loading", "opening microphone")
         self.recorder.open()
 
-        self._status("loading", "loading model into VRAM")
+        where = "VRAM" if self.transcriber.device.is_gpu else "memory"
+        self._status("loading", f"loading model into {where}")
         t0 = time.perf_counter()
         self.transcriber.load()
         self._status("ready", f"model warm in {time.perf_counter() - t0:.1f}s")
