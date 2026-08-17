@@ -23,6 +23,12 @@ DEFAULTS: dict[str, Any] = {
     # for a dedicated push-to-talk key; set False if you still use Right Ctrl
     # for normal shortcuts.
     "hotkey_suppress": True,
+    # --- startup ---
+    # Start LocalFlow when you log in, by keeping a shortcut in the Startup
+    # folder. The app reconciles the folder with this setting every time it
+    # runs, so turning it off here and launching once removes the shortcut, and
+    # moving the project or rebuilding the venv repairs it. See autostart.py.
+    "start_on_login": False,
     # --- audio ---
     # None means the Windows default input device. Set to a device name
     # substring (for example "Brio") or an integer index to pin one.

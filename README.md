@@ -128,6 +128,26 @@ the repo, so there is nothing to download and nothing to train.
 The [Wake word](#wake-word) section covers choosing a phrase and setting a
 threshold that does not fire while you are on a call.
 
+### Starting it with Windows
+
+Set `"start_on_login": true` and launch once. From then on LocalFlow comes up
+minimised whenever you log in, ready for the hotkey or the wake word.
+
+```json
+"start_on_login": true,
+```
+
+It works by keeping a shortcut in your Startup folder
+(`shell:startup` in the Run box), which needs no admin rights and stays visible
+somewhere you can delete it by hand. The app reconciles that folder with the
+setting on every launch, so setting the key back to `false` and running once
+removes the shortcut, and moving the project or rebuilding the venv repairs a
+shortcut that would otherwise point at an interpreter that is no longer there.
+
+Two copies running at once means two processes fighting over the same
+microphone and the same hotkey, so if it is already started for you, do not
+start it again from a terminal.
+
 ## What to expect
 
 Numbers from the development machine, an RTX 5060 Ti and an i7-14700K. Yours
@@ -175,6 +195,7 @@ roughly three times faster and noticeably less accurate on unusual words.
 |---|---|
 | `hotkey_vk` | Virtual-key code to hold. `163` = Right Ctrl, `165` = Right Alt, `145` = Scroll Lock. |
 | `hotkey_suppress` | If true the key is swallowed, so the focused app never sees it. Set false if you still use Right Ctrl for shortcuts. |
+| `start_on_login` | Start LocalFlow when you log in, `false` by default. See below. |
 | `input_device` | `null` for the Windows default, or a name substring such as `"Brio"`. |
 | `device` | `auto` (default) takes the GPU when one is usable and the CPU when it is not. `cuda` refuses to start rather than fall back, which is what you want if a silent drop to CPU speed would go unnoticed. `cpu` forces the CPU even on a machine with a GPU. |
 | `model` | Whisper model. `auto` (default) picks `large-v3-turbo` on the GPU and `small.en` on the CPU, since large-v3-turbo on a CPU decodes at about real time. Override with `large-v3-turbo`, `small`, `small.en`, `base` or `base.en`. The `.en` builds are English-only and are both faster and more accurate on English. |
@@ -569,7 +590,9 @@ continuity check that a five minute capture contains no silent gap anywhere.
 
 The overlay is frameless and non-activating by design, so it has no X and
 alt-F4 cannot reach it. **Close the console window you launched it from.** That
-ends the process and the overlay goes with it.
+ends the process and the overlay goes with it. Started by `start_on_login`, that
+window is minimised at login instead of absent: find it on the taskbar and close
+it the same way.
 
 ## How text gets inserted
 
@@ -631,6 +654,7 @@ window is focused, so click into a text field first, then hold the hotkey.
 .\.venv\Scripts\python.exe bench\demo_styles.py     # compare meter shapes by eye
 .\.venv\Scripts\python.exe bench\test_wake_modes.py # wake state machine, all end modes
 .\.venv\Scripts\python.exe bench\test_glow.py       # rim tiling, falloff, frame budget
+.\.venv\Scripts\python.exe bench\test_autostart.py  # Startup shortcut, in a temp folder
 .\.venv\Scripts\python.exe bench\demo_glow.py       # watch the edge glow, scripted
 ```
 
@@ -709,6 +733,7 @@ localflow/
   endpoint.py  decides when a spoken utterance has ended
   history.py   dated markdown transcripts
   models.py    model registry pinned by commit, and the device decision
+  autostart.py the Startup folder shortcut behind start_on_login
   config.py    settings.json
 ```
 

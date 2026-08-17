@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 
-from . import audio, hotkey
+from . import audio, autostart, hotkey
 from .app import DictationApp
 from .config import Settings, write_default_settings
 
@@ -28,6 +28,10 @@ def _print_status(state: str, detail: str) -> None:
 def main() -> int:
     settings = Settings.load()
     write_default_settings()
+
+    # Before the model is touched, so a launch that fails to load anything still
+    # leaves the Startup folder agreeing with the setting.
+    autostart_status = autostart.sync(settings.start_on_login)
 
     # Before any window exists, including Tk's. Windows decides how a process
     # scales the first time it draws, and a late call is ignored. Without it
@@ -79,6 +83,8 @@ def main() -> int:
         for idx, name in devices[:4]:
             print(f"              [{idx}] {name}")
     print(f"  output    cursor + {settings.transcript_dir}")
+    if autostart_status:
+        print(f"  startup   {autostart_status}")
     if settings.glow:
         lit = _glow.monitors()
         if settings.glow_monitors != "all":
