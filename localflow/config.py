@@ -78,13 +78,17 @@ DEFAULTS: dict[str, Any] = {
     # Score a frame must reach to count. Raise it if the wake word fires on
     # its own, lower it if it ignores you.
     #
-    # 0.8 is where "hey flow" was measured live: it scored 0.940 to 0.970 on
-    # every attempt through one voice and one microphone, and 0.8 caught all of
-    # them while holding false accepts to 0.09/hour on 10.7 hours of validation
-    # audio. 0.5 lets through a false start every two hours, which is what makes
-    # a wake word feel broken. The full curve is in the README, and lowering
-    # this is the first thing to try if it ignores you.
-    "wake_threshold": 0.8,
+    # 0.6 is the value other voices can actually reach. This was 0.8 until
+    # 2026-08-19, because 0.8 is where "hey flow" measured live: it scored 0.940
+    # to 0.970 on every attempt through one voice and one microphone, mine, and
+    # 0.8 caught all of them while holding false accepts to 0.09/hour on 10.7
+    # hours of validation audio. Four people then installed from this repo and
+    # none of them could trigger the phrase at all, and every one got past it by
+    # lowering this value by hand. A threshold calibrated on a single speaker
+    # does not transfer. 0.6 costs a false start every 2.7 hours instead of
+    # every 11, which the README curve tabulates in full. Raise it if the wake
+    # word fires on its own, and measure your own room with bench/demo_wake.py.
+    "wake_threshold": 0.6,
     # Consecutive 80ms frames that must clear the threshold. This is the lever
     # that actually reduces false accepts: one noisy frame cannot start a
     # recording, a real phrase clears several in a row. Costs a little

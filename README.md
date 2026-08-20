@@ -220,7 +220,7 @@ roughly three times faster and noticeably less accurate on unusual words.
 | `glow_linger_seconds` | How long it holds dim after your text lands, showing it is listening again. Default 2.0, `0` to leave immediately. |
 | `wake_word` | Start dictation by speaking a phrase. `false` by default. See below. |
 | `wake_phrase` | `hey_flow` (default, ships with the repo), `hey_jarvis`, `alexa`, `hey_mycroft`, or the name of any other model in `models/wake/custom`. |
-| `wake_threshold` | Score a phrase must reach, default 0.8, which is where "hey flow" was measured live. Raise it if the wake word fires on its own, lower it if it ignores you. The curve is tabulated below. |
+| `wake_threshold` | Score a phrase must reach, default 0.6. It was 0.8, which is where "hey flow" measured on my own voice, until other people could not reach that on theirs. Raise it if the wake word fires on its own, lower it if it ignores you. The curve is tabulated below. |
 | `wake_patience` | Consecutive frames above the threshold before it counts, default 2. This is what keeps single-frame spikes from firing. |
 | `wake_debounce_seconds` | Hold-off after a detection, default 3.0. |
 | `wake_preroll_seconds` | How far a voice-started recording reaches back, default 0.3. Raise it if your first word gets clipped. Lower it if the wake phrase itself shows up in your text. |
@@ -387,9 +387,10 @@ trainer's single-frame count.
 | `hey localflow` | 0.5 | 81.4% | 0.09 |
 | `hey localflow` | 0.6 | 80.2% | 0.00 |
 
-The curve is shallow, which is the useful part: dropping `hey flow` from 0.8 to
-0.6 buys 5.5 points of detection and costs a false start every 2.7 hours
-instead of every 11. Going below 0.5 buys almost nothing and costs a lot.
+The curve is shallow, which is the useful part, and it is why 0.6 is the
+default: dropping `hey flow` from 0.8 to 0.6 buys 5.5 points of detection and
+costs a false start every 2.7 hours instead of every 11. Going below 0.5 buys
+almost nothing and costs a lot.
 Lowering `wake_patience` to 1 is a worse trade at every threshold, roughly
 doubling false accepts to save 80ms.
 
@@ -416,6 +417,13 @@ microphone. Treat them as a floor and measure your own room with
 scored between 0.940 and 0.970 on every attempt, so a threshold of 0.8 caught
 all of them. That is far above the synthetic figure, which is the point of
 measuring your own room.
+
+It is also the trap, and it took four people to find it. 0.8 was the default
+until 2026-08-19. Four people installed from this repo, and every one of them
+failed to trigger the phrase on the first try, because a threshold set from a
+single speaker and a single microphone does not transfer to anyone else. Each
+of them got past it by lowering `wake_threshold` by hand, so that is the
+default now: 0.6, which is what I have run since. Measure your own room anyway.
 
 **"hey flow" is in the repo.** `models/` is gitignored as a rule, because
 downloaded weights are not source, and `hey_flow.onnx` is the one exception:
